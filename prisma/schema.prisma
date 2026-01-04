@@ -7,9 +7,85 @@ datasource db {
 }
 
 
-model User {
-  id        String   @id @default(cuid())
+model Business {
+  id          String      @id @default(uuid())
+  name        String    
+  email       String   @unique
+  address     String   
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  loyaltyCardTemplates LoyaltyCardTemplate[]
+  employees    Employee[]
+}
+
+model Employee {
+  id        String   @id @default(uuid())
+  name      String
   email     String   @unique
-  name      String?
+  businessId String
+  business  Business @relation(fields: [businessId], references: [id])
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stampingLogs StampingLog[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userLoyaltyCards UserLoyaltyCard[]
+}
+
+model LoyaltyCardTemplate{
+  id          String   @id @default(uuid())
+  title       String
+  description String
+  maxPoints   Int      @default(10)
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+  userLoyaltyCards UserLoyaltyCard[]
+
+  @@unique([businessId, title])
+}
+
+model UserLoyaltyCard {
+  id      String      @id @default(uuid())
+  userId  String
+  user    User       @relation(fields: [userId], references: [id])
+  loyaltyCardTemplateId String
+  template LoyaltyCardTemplate @relation(fields: [loyaltyCardTemplateId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userLoyaltyCardCycles UserLoyaltyCardCycle[]
+
+  @@unique([userId, loyaltyCardTemplateId])
+}
+
+model UserLoyaltyCardCycle {
+  id      String      @id @default(uuid())
+  stampCount  Int      @default(0)
+  cycleNumber Int
+  userLoyaltyCardId String
+  userLoyaltyCard   UserLoyaltyCard @relation(fields: [userLoyaltyCardId], references: [id])
+  startedAt DateTime @default(now())
+  completedAt   DateTime?
+  stampingLogs StampingLog[]
+
+  @@unique([userLoyaltyCardId, cycleNumber])
+  
+
+}
+
+model StampingLog {
+  id            String      @id @default(uuid())
+  userLoyaltyCardCycleId String
+  userLoyaltyCardCycle   UserLoyaltyCardCycle @relation(fields: [userLoyaltyCardCycleId], references: [id])
+  stampedById   String
+  stampedBy     Employee  @relation(fields: [stampedById], references: [id])
+  stampedAt     DateTime    @default(now())
 }
