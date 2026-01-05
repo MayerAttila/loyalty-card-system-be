@@ -1,22 +1,11 @@
 import express from "express";
-import cors from "cors";
-import helmet from "helmet";
+import { errorMiddleware } from "./common/errors/errorMiddleware";
+import { userRouter } from "./modules/user/user.routes";
 
-const app = express();
+export const app = express();
 
-app.use(helmet());
 app.use(express.json());
 
-// For dev: allow your Next.js dev server
-app.use(
-  cors({
-    origin: ["http://localhost:3000"],
-    credentials: true,
-  })
-);
+app.use("/user", userRouter);
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
-export default app;
+app.use(errorMiddleware);
