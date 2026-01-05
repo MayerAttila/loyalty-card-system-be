@@ -11,17 +11,19 @@ model Business {
   id          String      @id @default(uuid())
   name        String    
   email       String   @unique
-  address     String   
+  address     String?   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   loyaltyCardTemplates LoyaltyCardTemplate[]
   employees    Employee[]
 }
 
+
 model Employee {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
+  approved  Boolean  @default(false)
   businessId String
   business  Business @relation(fields: [businessId], references: [id])
   createdAt DateTime @default(now())
