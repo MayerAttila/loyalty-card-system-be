@@ -10,21 +10,26 @@ datasource db {
 model Business {
   id          String      @id @default(uuid())
   name        String    
-  email       String   @unique
-  password    String
   address     String?   
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   loyaltyCardTemplates LoyaltyCardTemplate[]
-  employees    Employee[]
+  employees    User[]
 }
 
 
-model Employee {
+enum UserRole {
+    OWNER
+    ADMIN
+    STAFF
+  }
+
+model User {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
   password  String
+  role      UserRole @default(STAFF)
   approved  Boolean  @default(false)
   businessId String
   business  Business @relation(fields: [businessId], references: [id])
@@ -33,13 +38,13 @@ model Employee {
   stampingLogs StampingLog[]
 }
 
-model User {
+model Costumer {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  userLoyaltyCards UserLoyaltyCard[]
+  costumerLoyaltyCard CostumerLoyaltyCard[]
 }
 
 model LoyaltyCardTemplate{
@@ -47,49 +52,48 @@ model LoyaltyCardTemplate{
   title       String
   description String
   maxPoints   Int      @default(10)
-  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
-  userLoyaltyCards UserLoyaltyCard[]
+  costumerLoyaltyCard CostumerLoyaltyCard[]
 
   @@unique([businessId, title])
 }
 
-model UserLoyaltyCard {
+model CostumerLoyaltyCard {
   id      String      @id @default(uuid())
-  userId  String
-  user    User       @relation(fields: [userId], references: [id])
+  costumerId  String
+  costumer    Costumer       @relation(fields: [costumerId], references: [id])
   loyaltyCardTemplateId String
   template LoyaltyCardTemplate @relation(fields: [loyaltyCardTemplateId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  userLoyaltyCardCycles UserLoyaltyCardCycle[]
+  CostumerLoyaltyCardCycle CostumerLoyaltyCardCycle[]
 
-  @@unique([userId, loyaltyCardTemplateId])
+  @@unique([costumerId, loyaltyCardTemplateId])
 }
 
-model UserLoyaltyCardCycle {
+model CostumerLoyaltyCardCycle {
   id      String      @id @default(uuid())
   stampCount  Int      @default(0)
   cycleNumber Int
-  userLoyaltyCardId String
-  userLoyaltyCard   UserLoyaltyCard @relation(fields: [userLoyaltyCardId], references: [id])
+  costumerLoyaltyCardId String
+  costumerLoyaltyCard   CostumerLoyaltyCard @relation(fields: [costumerLoyaltyCardId], references: [id])
   startedAt DateTime @default(now())
   completedAt   DateTime?
   stampingLogs StampingLog[]
 
-  @@unique([userLoyaltyCardId, cycleNumber])
+  @@unique([costumerLoyaltyCardId, cycleNumber])
   
 
 }
 
 model StampingLog {
   id            String      @id @default(uuid())
-  userLoyaltyCardCycleId String
-  userLoyaltyCardCycle   UserLoyaltyCardCycle @relation(fields: [userLoyaltyCardCycleId], references: [id])
+  costumerLoyaltyCardCycleId String
+  costumerLoyaltyCardCycle   CostumerLoyaltyCardCycle @relation(fields: [costumerLoyaltyCardCycleId], references: [id])
   stampedById   String
-  stampedBy     Employee  @relation(fields: [stampedById], references: [id])
+  stampedBy     User  @relation(fields: [stampedById], references: [id])
   stampedAt     DateTime    @default(now())
 }

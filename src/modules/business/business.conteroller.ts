@@ -1,6 +1,5 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client";
-import bcrypt from "bcryptjs";
 
 export const getAllBusinesses = async (req: Request, res: Response) => {
   const businesses = await prisma.business.findMany({
@@ -8,7 +7,6 @@ export const getAllBusinesses = async (req: Request, res: Response) => {
       id: true,
       name: true,
       address: true,
-      email: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -24,7 +22,6 @@ export const getBusinessById = async (req: Request, res: Response) => {
       id: true,
       name: true,
       address: true,
-      email: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -34,15 +31,13 @@ export const getBusinessById = async (req: Request, res: Response) => {
 };
 
 export const createBusiness = async (req: Request, res: Response) => {
-  const { name, address, email, password } = req.body;
-  const hashed = await bcrypt.hash(password, 10);
+  const { name, address, email } = req.body;
   const business = await prisma.business.create({
-    data: { name, address, email, password: hashed },
+    data: { name, address, email },
     select: {
       id: true,
       name: true,
       address: true,
-      email: true,
       createdAt: true,
       updatedAt: true,
     },

@@ -1,44 +1,61 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client";
+import bcrypt from "bcryptjs";
 
-async function getAllUsers(req: Request, res: Response) {
-  const users = await prisma.user.findMany();
-  res.json(users);
-}
-
-async function getUserByEmail(req: Request, res: Response) {
-  const { email } = req.params;
-
-  const user = await prisma.user.findUnique({
-    where: { email },
-  });
-
-  res.json(user);
-}
-
-async function getUserById(req: Request, res: Response) {
+export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
-
   const user = await prisma.user.findUnique({
     where: { id },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+      role: true,
+    },
   });
 
   res.json(user);
-}
+};
 
-async function createUser(req: Request, res: Response) {
-  const { email, name } = req.body;
+export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
+  const { businessId } = req.params;
+  const users = await prisma.user.findMany({
+    where: { businessId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+      role: true,
+    },
+  });
 
+  res.json(users);
+};
+
+export const createUser = async (req: Request, res: Response) => {
+  const { name, email, businessId, password, role } = req.body;
+  const hashed = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { email, name },
+    data: { name, email, businessId, password: hashed, role },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      createdAt: true,
+      updatedAt: true,
+      role: true,
+    },
   });
 
   res.status(201).json(user);
-}
+};
 
-export const userController = {
-  getAllUsers,
-  getUserByEmail,
+export const userControllers = {
   getUserById,
+  getAllUsersByBusinessId,
   createUser,
 };

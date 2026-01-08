@@ -1,9 +1,9 @@
 import express from "express";
 import cors from "cors";
 import { errorMiddleware } from "./common/errors/errorMiddleware";
-import { userRouter } from "./modules/user/user.routes";
+import { customerRoutes } from "./modules/costumer/costumer.routes";
 import { businessRouter } from "./modules/business/business.router";
-import { employeeRouter } from "./modules/employee/employee.router";
+import { userRoutes } from "./modules/user/user.router";
 
 export const app = express();
 
@@ -18,8 +18,8 @@ app.use(
 
 app.use(express.json());
 
-app.use("/user", userRouter);
+app.use("/customer", customerRoutes);
 app.use("/business", businessRouter);
-app.use("/employee", employeeRouter);
+app.use("/user", userRoutes);
 
 app.use(errorMiddleware);
