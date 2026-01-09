@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { prisma } from "../../prisma/client";
+import { prisma } from "../../prisma/client.js";
 
 export const getAllBusinesses = async (req: Request, res: Response) => {
   const businesses = await prisma.business.findMany({

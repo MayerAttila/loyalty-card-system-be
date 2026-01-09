@@ -1,5 +1,5 @@
 import type { Request, Response } from "express";
-import { prisma } from "../../prisma/client";
+import { prisma } from "../../prisma/client.js";
 import bcrypt from "bcryptjs";
 
 export const getUserById = async (req: Request, res: Response) => {
@@ -37,10 +37,10 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
 };
 
 export const createUser = async (req: Request, res: Response) => {
-  const { name, email, businessId, password, role } = req.body;
+  const { name, email, businessId, password, role, approved } = req.body;
   const hashed = await bcrypt.hash(password, 10);
   const user = await prisma.user.create({
-    data: { name, email, businessId, password: hashed, role },
+    data: { name, email, businessId, password: hashed, role, approved },
     select: {
       id: true,
       name: true,

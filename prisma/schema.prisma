@@ -6,6 +6,69 @@ datasource db {
   provider = "postgresql"
 }
 
+enum UserRole {
+    OWNER
+    ADMIN
+    STAFF
+  }
+
+model User {
+  id        String   @id @default(uuid())
+  name      String
+  email     String   @unique
+  password  String?
+  role      UserRole @default(STAFF)
+  approved  Boolean  @default(false)
+  businessId String
+  business  Business @relation(fields: [businessId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+  stampingLogs StampingLog[]
+}
+
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+ 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+ 
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  @@id([provider, providerAccountId])
+}
+ 
+model Session {
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+ 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+ 
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+ 
+  @@id([identifier, token])
+}
+ 
+
 
 model Business {
   id          String      @id @default(uuid())
@@ -17,26 +80,6 @@ model Business {
   employees    User[]
 }
 
-
-enum UserRole {
-    OWNER
-    ADMIN
-    STAFF
-  }
-
-model User {
-  id        String   @id @default(uuid())
-  name      String
-  email     String   @unique
-  password  String
-  role      UserRole @default(STAFF)
-  approved  Boolean  @default(false)
-  businessId String
-  business  Business @relation(fields: [businessId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  stampingLogs StampingLog[]
-}
 
 model Costumer {
   id        String   @id @default(uuid())

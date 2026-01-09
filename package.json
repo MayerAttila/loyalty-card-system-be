@@ -17,12 +17,14 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/MayerAttila/loyalty-card-system-be/issues"
   },
   "homepage": "https://github.com/MayerAttila/loyalty-card-system-be#readme",
   "dependencies": {
+    "@auth/express": "^0.12.1",
+    "@auth/prisma-adapter": "^2.11.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "bcryptjs": "^3.0.2",
