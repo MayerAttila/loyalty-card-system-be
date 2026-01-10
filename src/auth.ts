@@ -35,6 +35,11 @@ export const authConfig: ExpressAuthConfig = {
 
         const user = await prisma.user.findUnique({
           where: { email },
+          include: {
+            business: {
+              select: { name: true },
+            },
+          },
         });
         console.log("Auth user lookup:", user ? user.id : "not found");
 
@@ -44,15 +49,42 @@ export const authConfig: ExpressAuthConfig = {
         console.log("Auth password match:", isValid);
         if (!isValid) return null;
 
-        console.log("Auth user approved:", user.approved);
-        if (!user.approved) return null;
-
         return {
           id: user.id,
           email: user.email,
           name: user.name,
+          role: user.role,
+          businessId: user.businessId,
+          businessName: user.business.name,
+          approved: user.approved,
         };
       },
     }),
   ],
+
+  callbacks: {
+    async jwt({ token, user }) {
+      if (user) {
+        token.id = (user as any).id;
+        token.role = (user as any).role;
+        token.businessId = (user as any).businessId;
+        token.businessName = (user as any).businessName;
+        token.approved = (user as any).approved;
+      }
+
+      return token;
+    },
+
+    async session({ session, token }) {
+      if (session.user) {
+        (session.user as any).id = token.id;
+        (session.user as any).role = token.role;
+        (session.user as any).businessId = token.businessId;
+        (session.user as any).businessName = token.businessName;
+        (session.user as any).approved = token.approved;
+      }
+
+      return session;
+    },
+  },
 };
