@@ -6,12 +6,17 @@ import { errorMiddleware } from "./common/errors/errorMiddleware.js";
 import { customerRoutes } from "./modules/costumer/costumer.routes.js";
 import { businessRouter } from "./modules/business/business.router.js";
 import { userRoutes } from "./modules/user/user.router.js";
+import { env } from "./config/env.js";
+
+const corsOrigins = env.CORS_ORIGIN.split(",")
+  .map((origin: string) => origin.trim())
+  .filter(Boolean);
 
 export const app = express();
 
 app.use(
   cors({
-    origin: "http://172.27.128.1:3000",
+    origin: corsOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "X-Auth-Return-Redirect"],
