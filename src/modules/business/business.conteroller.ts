@@ -31,9 +31,9 @@ export const getBusinessById = async (req: Request, res: Response) => {
 };
 
 export const createBusiness = async (req: Request, res: Response) => {
-  const { name, address, email } = req.body;
+  const { name, address } = req.body;
   const business = await prisma.business.create({
-    data: { name, address, email },
+    data: { name, address },
     select: {
       id: true,
       name: true,
