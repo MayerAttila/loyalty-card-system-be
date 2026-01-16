@@ -9,3 +9,4 @@ userRoutes.get(
   userControllers.getAllUsersByBusinessId
 );
 userRoutes.post("/", userControllers.createUser);
+userRoutes.patch("/id/:id/approval", userControllers.updateUserApproval);

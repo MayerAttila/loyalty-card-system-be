@@ -33,14 +33,20 @@ export const authConfig: ExpressAuthConfig = {
 
         const { email, password } = parsed.data;
 
-        const user = await prisma.user.findUnique({
-          where: { email },
-          include: {
-            business: {
-              select: { name: true },
+        let user = null;
+        try {
+          user = await prisma.user.findUnique({
+            where: { email },
+            include: {
+              business: {
+                select: { name: true },
+              },
             },
-          },
-        });
+          });
+        } catch (error) {
+          console.error("Auth user lookup failed:", error);
+          throw error;
+        }
         console.log("Auth user lookup:", user ? user.id : "not found");
 
         if (!user || !user.password) return null;
