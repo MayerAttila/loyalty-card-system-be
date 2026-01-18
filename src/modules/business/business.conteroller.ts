@@ -46,8 +46,32 @@ export const createBusiness = async (req: Request, res: Response) => {
   res.status(201).json(business);
 };
 
+export const updateBusiness = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { name, address } = req.body as { name?: string; address?: string };
+
+  if (!name || typeof name !== "string") {
+    return res.status(400).json({ message: "name is required" });
+  }
+
+  const business = await prisma.business.update({
+    where: { id },
+    data: { name, address },
+    select: {
+      id: true,
+      name: true,
+      address: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  res.json(business);
+};
+
 export const businessController = {
   getAllBusinesses,
   getBusinessById,
   createBusiness,
+  updateBusiness,
 };
