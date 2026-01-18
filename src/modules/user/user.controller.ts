@@ -109,10 +109,19 @@ export const updateUserRole = async (req: Request, res: Response) => {
   res.json(user);
 };
 
+export const deleteUser = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  await prisma.user.delete({ where: { id } });
+
+  res.status(204).send();
+};
+
 export const userControllers = {
   getUserById,
   getAllUsersByBusinessId,
   createUser,
   updateUserApproval,
   updateUserRole,
+  deleteUser,
 };
