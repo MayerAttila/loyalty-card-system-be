@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { userControllers } from "./user.controller";
+import { userControllers } from "./user.controller.js";
 
 export const userRoutes = Router();
 
@@ -10,3 +10,4 @@ userRoutes.get(
 );
 userRoutes.post("/", userControllers.createUser);
 userRoutes.patch("/id/:id/approval", userControllers.updateUserApproval);
+userRoutes.patch("/id/:id/role", userControllers.updateUserRole);

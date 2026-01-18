@@ -1,4 +1,5 @@
 import type { Request, Response } from "express";
+import { UserRole } from "@prisma/client";
 import { prisma } from "../../prisma/client.js";
 import bcrypt from "bcryptjs";
 
@@ -82,9 +83,36 @@ export const updateUserApproval = async (req: Request, res: Response) => {
   res.json(user);
 };
 
+export const updateUserRole = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { role } = req.body as { role?: UserRole };
+  const allowedRoles: UserRole[] = ["OWNER", "ADMIN", "STAFF"];
+
+  if (!role || !allowedRoles.includes(role)) {
+    return res.status(400).json({ message: "role must be OWNER, ADMIN, or STAFF" });
+  }
+
+  const user = await prisma.user.update({
+    where: { id },
+    data: { role },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      approved: true,
+      createdAt: true,
+      updatedAt: true,
+      role: true,
+    },
+  });
+
+  res.json(user);
+};
+
 export const userControllers = {
   getUserById,
   getAllUsersByBusinessId,
   createUser,
   updateUserApproval,
+  updateUserRole,
 };
