@@ -181,9 +181,35 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
   res.json(template);
 };
 
+export const deleteCardTemplate = async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  if (!id) {
+    return res.status(400).json({ message: "id is required" });
+  }
+
+  const template = await prisma.loyaltyCardTemplate.delete({
+    where: { id },
+    select: {
+      id: true,
+      title: true,
+      maxPoints: true,
+      cardColor: true,
+      accentColor: true,
+      textColor: true,
+      businessId: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  res.json(template);
+};
+
 export const cardTemplateController = {
   getCardTemplateById,
   getCardTemplatesByBusinessId,
   createCardTemplate,
   updateCardTemplate,
+  deleteCardTemplate,
 };

@@ -10,3 +10,4 @@ cardTemplateRouter.get(
 cardTemplateRouter.get("/id/:id", cardTemplateController.getCardTemplateById);
 cardTemplateRouter.post("/", cardTemplateController.createCardTemplate);
 cardTemplateRouter.patch("/id/:id", cardTemplateController.updateCardTemplate);
+cardTemplateRouter.delete("/id/:id", cardTemplateController.deleteCardTemplate);
