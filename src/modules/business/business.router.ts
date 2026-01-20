@@ -4,7 +4,7 @@ import { businessController } from "./business.conteroller.js";
 
 export const businessRouter = Router();
 
-const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+const MAX_LOGO_BYTES = 3 * 1024 * 1024;
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: MAX_LOGO_BYTES },

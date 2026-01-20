@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 
-const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/png",
   "image/jpeg",
@@ -90,7 +90,7 @@ export const uploadBusinessLogo = async (req: Request, res: Response) => {
   }
 
   if (file.size > MAX_IMAGE_BYTES) {
-    return res.status(400).json({ message: "logo exceeds 2MB limit" });
+    return res.status(400).json({ message: "logo exceeds 3MB limit" });
   }
 
   const business = await prisma.business.findUnique({ where: { id } });
@@ -127,7 +127,7 @@ export const uploadBusinessStampOn = async (req: Request, res: Response) => {
   }
 
   if (file.size > MAX_IMAGE_BYTES) {
-    return res.status(400).json({ message: "stamp exceeds 2MB limit" });
+    return res.status(400).json({ message: "stamp exceeds 3MB limit" });
   }
 
   const business = await prisma.business.findUnique({ where: { id } });
@@ -164,7 +164,7 @@ export const uploadBusinessStampOff = async (req: Request, res: Response) => {
   }
 
   if (file.size > MAX_IMAGE_BYTES) {
-    return res.status(400).json({ message: "stamp exceeds 2MB limit" });
+    return res.status(400).json({ message: "stamp exceeds 3MB limit" });
   }
 
   const business = await prisma.business.findUnique({ where: { id } });
