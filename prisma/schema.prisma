@@ -78,8 +78,33 @@ model Business {
   updatedAt   DateTime @updatedAt
   loyaltyCardTemplates LoyaltyCardTemplate[]
   employees    User[]
+  images       Image[]
 }
 
+enum ImageKind {
+  BUSINESS_LOGO
+  STAMP_ON
+  STAMP_OFF
+}
+
+model Image {
+  id          String    @id @default(uuid())
+  kind        ImageKind
+  mimeType    String
+  data        Bytes
+  width       Int?
+  height      Int?
+  createdAt   DateTime  @default(now())
+
+  businessId  String?
+  business    Business? @relation(fields: [businessId], references: [id])
+
+  loyaltyCardTemplateId String?
+  loyaltyCardTemplate   LoyaltyCardTemplate? @relation(fields: [loyaltyCardTemplateId], references: [id])
+
+  @@index([businessId, kind])
+  @@index([loyaltyCardTemplateId, kind])
+}
 
 model Costumer {
   id        String   @id @default(uuid())
@@ -102,6 +127,7 @@ model LoyaltyCardTemplate{
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
   costumerLoyaltyCard CostumerLoyaltyCard[]
+  images      Image[]
 
   @@unique([businessId, title])
 }
