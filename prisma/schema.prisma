@@ -79,6 +79,7 @@ model Business {
   loyaltyCardTemplates LoyaltyCardTemplate[]
   employees    User[]
   images       Image[]
+  customers    Costumer[]
 }
 
 enum ImageKind {
@@ -113,6 +114,10 @@ model Costumer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   costumerLoyaltyCard CostumerLoyaltyCard[]
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId])
 }
 
 model LoyaltyCardTemplate{
