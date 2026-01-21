@@ -82,7 +82,27 @@ export const authConfig: ExpressAuthConfig = {
     },
 
     async session({ session, token }) {
-      if (session.user) {
+      if (session.user && token.id) {
+        const user = await prisma.user.findUnique({
+          where: { id: String(token.id) },
+          include: {
+            business: {
+              select: { name: true },
+            },
+          },
+        });
+
+        if (user) {
+          (session.user as any).id = user.id;
+          (session.user as any).email = user.email;
+          (session.user as any).name = user.name;
+          (session.user as any).role = user.role;
+          (session.user as any).businessId = user.businessId;
+          (session.user as any).businessName = user.business.name;
+          (session.user as any).approved = user.approved;
+          return session;
+        }
+
         (session.user as any).id = token.id;
         (session.user as any).role = token.role;
         (session.user as any).businessId = token.businessId;

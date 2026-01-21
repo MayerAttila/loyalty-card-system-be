@@ -9,6 +9,7 @@ userRoutes.get(
   userControllers.getAllUsersByBusinessId
 );
 userRoutes.post("/", userControllers.createUser);
+userRoutes.patch("/id/:id", userControllers.updateUserProfile);
 userRoutes.post("/invite", userControllers.sendEmployeeInvite);
 userRoutes.patch("/id/:id/approval", userControllers.updateUserApproval);
 userRoutes.patch("/id/:id/role", userControllers.updateUserRole);

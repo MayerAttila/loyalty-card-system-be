@@ -118,6 +118,51 @@ export const deleteUser = async (req: Request, res: Response) => {
   res.status(204).send();
 };
 
+export const updateUserProfile = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { name, email } = req.body as {
+    name?: string;
+    email?: string;
+  };
+
+  const nextName = typeof name === "string" ? name.trim() : undefined;
+  const nextEmail = typeof email === "string" ? email.trim() : undefined;
+
+  if (!nextName && !nextEmail) {
+    return res.status(400).json({ message: "name or email is required" });
+  }
+
+  if (nextEmail && !/.+@.+\..+/.test(nextEmail)) {
+    return res.status(400).json({ message: "email is invalid" });
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(nextName ? { name: nextName } : {}),
+        ...(nextEmail ? { email: nextEmail } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        approved: true,
+        createdAt: true,
+        updatedAt: true,
+        role: true,
+      },
+    });
+
+    res.json(user);
+  } catch (error) {
+    if ((error as { code?: string }).code === "P2002") {
+      return res.status(409).json({ message: "email already in use" });
+    }
+    throw error;
+  }
+};
+
 export const sendEmployeeInvite = async (req: Request, res: Response) => {
   const { email, businessId } = req.body as {
     email?: string;
@@ -151,7 +196,7 @@ export const sendEmployeeInvite = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "APP_BASE_URL is not configured" });
   }
 
-  const inviteUrl = `${baseUrl.replace(/\/$/, "")}/register?role=employee&businessId=${encodeURIComponent(
+  const inviteUrl = `${baseUrl.replace(/\/$/, "")}/register?role=employee&invite=1&businessId=${encodeURIComponent(
     businessId
   )}`;
 
@@ -176,5 +221,6 @@ export const userControllers = {
   updateUserApproval,
   updateUserRole,
   deleteUser,
+  updateUserProfile,
   sendEmployeeInvite,
 };
