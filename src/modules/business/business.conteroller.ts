@@ -36,7 +36,38 @@ export const getAllBusinesses = async (req: Request, res: Response) => {
     },
   });
 
-  res.json(businesses);
+  const businessIds = businesses.map((business) => business.id);
+  const images = businessIds.length
+    ? await prisma.image.findMany({
+        where: {
+          businessId: { in: businessIds },
+          kind: { in: ["BUSINESS_LOGO", "STAMP_ON", "STAMP_OFF"] },
+        },
+        select: { businessId: true, kind: true },
+      })
+    : [];
+
+  const imageMap = new Map<string, Set<string>>();
+  for (const image of images) {
+    if (!image.businessId) {
+      continue;
+    }
+    const kinds = imageMap.get(image.businessId) ?? new Set<string>();
+    kinds.add(image.kind);
+    imageMap.set(image.businessId, kinds);
+  }
+
+  res.json(
+    businesses.map((business) => {
+      const kinds = imageMap.get(business.id) ?? new Set<string>();
+      return {
+        ...business,
+        hasLogo: kinds.has("BUSINESS_LOGO"),
+        hasStampOn: kinds.has("STAMP_ON"),
+        hasStampOff: kinds.has("STAMP_OFF"),
+      };
+    })
+  );
 };
 export const getBusinessById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -51,7 +82,25 @@ export const getBusinessById = async (req: Request, res: Response) => {
     },
   });
 
-  res.json(business);
+  if (!business) {
+    return res.json(business);
+  }
+
+  const images = await prisma.image.findMany({
+    where: {
+      businessId: id,
+      kind: { in: ["BUSINESS_LOGO", "STAMP_ON", "STAMP_OFF"] },
+    },
+    select: { kind: true },
+  });
+  const kinds = new Set(images.map((image) => image.kind));
+
+  res.json({
+    ...business,
+    hasLogo: kinds.has("BUSINESS_LOGO"),
+    hasStampOn: kinds.has("STAMP_ON"),
+    hasStampOff: kinds.has("STAMP_OFF"),
+  });
 };
 
 export const createBusiness = async (req: Request, res: Response) => {
