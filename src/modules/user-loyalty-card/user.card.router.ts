@@ -9,3 +9,7 @@ userCardRouter.get(
   userCardControllers.getCardsByCustomerId
 );
 userCardRouter.post("/", userCardControllers.createCustomerCard);
+userCardRouter.post(
+  "/id/:id/google-wallet",
+  userCardControllers.getGoogleWalletSaveLink
+);

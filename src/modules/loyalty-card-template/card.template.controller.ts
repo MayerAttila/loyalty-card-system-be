@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
+import { issuerId, walletRequest } from "../../lib/googleWallet.js";
 
 export const getCardTemplateById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -125,6 +126,59 @@ export const createCardTemplate = async (req: Request, res: Response) => {
         updatedAt: true,
       },
     });
+  });
+
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  if (!business) {
+    return res.status(404).json({ message: "business not found" });
+  }
+
+  const logo = await prisma.image.findFirst({
+    where: { businessId, kind: "BUSINESS_LOGO" },
+    select: { url: true },
+  });
+  if (!logo) {
+    return res.status(400).json({
+      message: "business logo is required for Google Wallet",
+    });
+  }
+
+  const classId = `${issuerId}.${template.id}`;
+  const createClassRes = await walletRequest("/loyaltyClass", {
+    method: "POST",
+    body: {
+      id: classId,
+      issuerName: business.name,
+      programName: template.title,
+      programLogo: {
+        sourceUri: { uri: logo.url },
+      },
+      accountIdLabel: "Card ID",
+      accountNameLabel: "Customer",
+      reviewStatus: "DRAFT",
+    },
+  });
+
+  if (!createClassRes.ok) {
+    const errorText = await createClassRes.text();
+    let errorDetails: unknown = errorText;
+    try {
+      errorDetails = JSON.parse(errorText);
+    } catch {
+      // keep raw text
+    }
+    return res.status(createClassRes.status).json({
+      message: "failed to create loyalty class",
+      details: errorDetails,
+    });
+  }
+
+  await prisma.loyaltyCardTemplate.update({
+    where: { id: template.id },
+    data: { googleWalletClassId: classId },
   });
 
   res.status(201).json(template);

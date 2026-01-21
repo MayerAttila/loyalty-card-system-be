@@ -13,6 +13,40 @@ export const googleAuth = new GoogleAuth({
   scopes: ["https://www.googleapis.com/auth/wallet_object.issuer"],
 });
 
+const walletBaseUrl = "https://walletobjects.googleapis.com/walletobjects/v1";
+
+async function getAccessToken() {
+  const client = await googleAuth.getClient();
+  const tokenResponse = await client.getAccessToken();
+  const token =
+    typeof tokenResponse === "string" ? tokenResponse : tokenResponse?.token;
+  if (!token) {
+    throw new Error("Unable to acquire Google Wallet access token");
+  }
+  return token;
+}
+
+export async function walletRequest(
+  path: string,
+  options: { method: string; body?: unknown } = { method: "GET" }
+) {
+  const token = await getAccessToken();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+  };
+  let body: string | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
+
+  return fetch(`${walletBaseUrl}${path}`, {
+    method: options.method,
+    headers,
+    body,
+  });
+}
+
 export function createSaveJwt(objectId: string, classId: string) {
   const claims = {
     iss: key.client_email,

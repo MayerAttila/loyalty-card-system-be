@@ -25,6 +25,7 @@
   "dependencies": {
     "@auth/express": "^0.12.1",
     "@auth/prisma-adapter": "^2.11.1",
+    "@google-cloud/storage": "^7.18.0",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",
     "bcryptjs": "^3.0.2",

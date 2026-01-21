@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
+import { uploadImageBuffer } from "../../lib/gcs.js";
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
@@ -8,6 +9,21 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
   "image/webp",
   "image/svg+xml",
 ]);
+
+function getImageExtension(mimeType: string) {
+  switch (mimeType) {
+    case "image/png":
+      return "png";
+    case "image/jpeg":
+      return "jpg";
+    case "image/webp":
+      return "webp";
+    case "image/svg+xml":
+      return "svg";
+    default:
+      return "bin";
+  }
+}
 
 export const getAllBusinesses = async (req: Request, res: Response) => {
   const businesses = await prisma.business.findMany({
@@ -102,11 +118,20 @@ export const uploadBusinessLogo = async (req: Request, res: Response) => {
     where: { businessId: id, kind: "BUSINESS_LOGO" },
   });
 
+  const logoObjectName = `business/${id}/logo-${Date.now()}.${getImageExtension(
+    file.mimetype
+  )}`;
+  const logoUrl = await uploadImageBuffer({
+    buffer: file.buffer,
+    mimeType: file.mimetype,
+    objectName: logoObjectName,
+  });
+
   const image = await prisma.image.create({
     data: {
       kind: "BUSINESS_LOGO",
       mimeType: file.mimetype,
-      data: new Uint8Array(file.buffer),
+      url: logoUrl,
       businessId: id,
     },
   });
@@ -139,11 +164,20 @@ export const uploadBusinessStampOn = async (req: Request, res: Response) => {
     where: { businessId: id, kind: "STAMP_ON" },
   });
 
+  const stampOnObjectName = `business/${id}/stamp-on-${Date.now()}.${getImageExtension(
+    file.mimetype
+  )}`;
+  const stampOnUrl = await uploadImageBuffer({
+    buffer: file.buffer,
+    mimeType: file.mimetype,
+    objectName: stampOnObjectName,
+  });
+
   const image = await prisma.image.create({
     data: {
       kind: "STAMP_ON",
       mimeType: file.mimetype,
-      data: new Uint8Array(file.buffer),
+      url: stampOnUrl,
       businessId: id,
     },
   });
@@ -176,11 +210,20 @@ export const uploadBusinessStampOff = async (req: Request, res: Response) => {
     where: { businessId: id, kind: "STAMP_OFF" },
   });
 
+  const stampOffObjectName = `business/${id}/stamp-off-${Date.now()}.${getImageExtension(
+    file.mimetype
+  )}`;
+  const stampOffUrl = await uploadImageBuffer({
+    buffer: file.buffer,
+    mimeType: file.mimetype,
+    objectName: stampOffObjectName,
+  });
+
   const image = await prisma.image.create({
     data: {
       kind: "STAMP_OFF",
       mimeType: file.mimetype,
-      data: new Uint8Array(file.buffer),
+      url: stampOffUrl,
       businessId: id,
     },
   });
@@ -198,9 +241,8 @@ export const getBusinessLogo = async (req: Request, res: Response) => {
     return res.status(404).end();
   }
 
-  res.setHeader("Content-Type", image.mimeType);
   res.setHeader("Cache-Control", "no-store");
-  res.send(image.data);
+  res.redirect(image.url);
 };
 
 export const getBusinessStampOn = async (req: Request, res: Response) => {
@@ -213,9 +255,8 @@ export const getBusinessStampOn = async (req: Request, res: Response) => {
     return res.status(404).end();
   }
 
-  res.setHeader("Content-Type", image.mimeType);
   res.setHeader("Cache-Control", "no-store");
-  res.send(image.data);
+  res.redirect(image.url);
 };
 
 export const getBusinessStampOff = async (req: Request, res: Response) => {
@@ -228,9 +269,8 @@ export const getBusinessStampOff = async (req: Request, res: Response) => {
     return res.status(404).end();
   }
 
-  res.setHeader("Content-Type", image.mimeType);
   res.setHeader("Cache-Control", "no-store");
-  res.send(image.data);
+  res.redirect(image.url);
 };
 
 export const businessController = {

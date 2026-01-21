@@ -92,7 +92,7 @@ model Image {
   id          String    @id @default(uuid())
   kind        ImageKind
   mimeType    String
-  data        Bytes
+  url         String
   width       Int?
   height      Int?
   createdAt   DateTime  @default(now())
