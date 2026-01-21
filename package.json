@@ -31,7 +31,9 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
+    "google-auth-library": "^10.5.0",
     "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.12",
     "pg": "^8.16.3",
@@ -40,6 +42,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/multer": "^2.0.0",
     "@types/node": "^25.0.3",
     "@types/nodemailer": "^7.0.5",
