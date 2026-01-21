@@ -127,6 +127,8 @@ model LoyaltyCardTemplate{
   cardColor   String   
   accentColor String   
   textColor   String   
+  isActive    Boolean  @default(false)
+  googleWalletClassId String? @unique
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   businessId  String
@@ -143,6 +145,7 @@ model CostumerLoyaltyCard {
   costumer    Costumer       @relation(fields: [costumerId], references: [id])
   loyaltyCardTemplateId String
   template LoyaltyCardTemplate @relation(fields: [loyaltyCardTemplateId], references: [id])
+  googleWalletObjectId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   CostumerLoyaltyCardCycle CostumerLoyaltyCardCycle[]

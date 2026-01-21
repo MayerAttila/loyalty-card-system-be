@@ -57,6 +57,39 @@ async function createCustomer(req: Request, res: Response) {
     data: { email, name, businessId },
   });
 
+  const activeTemplate =
+    (await prisma.loyaltyCardTemplate.findFirst({
+      where: { businessId, isActive: true },
+      select: { id: true },
+    })) ??
+    (await prisma.loyaltyCardTemplate.findFirst({
+      where: { businessId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true },
+    }));
+
+  if (activeTemplate) {
+    try {
+      await prisma.$transaction(async (tx) => {
+        const card = await tx.costumerLoyaltyCard.create({
+          data: {
+            costumerId: costumer.id,
+            loyaltyCardTemplateId: activeTemplate.id,
+          },
+        });
+        await tx.costumerLoyaltyCardCycle.create({
+          data: {
+            costumerLoyaltyCardId: card.id,
+            cycleNumber: 1,
+            stampCount: 0,
+          },
+        });
+      });
+    } catch (error) {
+      console.error("auto-create loyalty card failed", error);
+    }
+  }
+
   res.status(201).json(costumer);
 }
 

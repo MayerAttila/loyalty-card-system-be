@@ -12,6 +12,7 @@ export const getCardTemplateById = async (req: Request, res: Response) => {
       cardColor: true,
       accentColor: true,
       textColor: true,
+      isActive: true,
       businessId: true,
       createdAt: true,
       updatedAt: true,
@@ -35,6 +36,7 @@ export const getCardTemplatesByBusinessId = async (
       cardColor: true,
       accentColor: true,
       textColor: true,
+      isActive: true,
       businessId: true,
       createdAt: true,
       updatedAt: true,
@@ -46,15 +48,23 @@ export const getCardTemplatesByBusinessId = async (
 };
 
 export const createCardTemplate = async (req: Request, res: Response) => {
-  const { title, businessId, maxPoints, cardColor, accentColor, textColor } =
-    req.body as {
-      title?: string;
-      businessId?: string;
-      maxPoints?: number;
-      cardColor?: string;
-      accentColor?: string;
-      textColor?: string;
-    };
+  const {
+    title,
+    businessId,
+    maxPoints,
+    cardColor,
+    accentColor,
+    textColor,
+    isActive,
+  } = req.body as {
+    title?: string;
+    businessId?: string;
+    maxPoints?: number;
+    cardColor?: string;
+    accentColor?: string;
+    textColor?: string;
+    isActive?: boolean;
+  };
 
   if (!title || typeof title !== "string") {
     return res.status(400).json({ message: "title is required" });
@@ -80,26 +90,41 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "textColor is required" });
   }
 
-  const template = await prisma.loyaltyCardTemplate.create({
-    data: {
-      title,
-      businessId,
-      maxPoints,
-      cardColor,
-      accentColor,
-      textColor,
-    },
-    select: {
-      id: true,
-      title: true,
-      maxPoints: true,
-      cardColor: true,
-      accentColor: true,
-      textColor: true,
-      businessId: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+  if (isActive !== undefined && typeof isActive !== "boolean") {
+    return res.status(400).json({ message: "isActive must be a boolean" });
+  }
+
+  const template = await prisma.$transaction(async (tx) => {
+    if (isActive) {
+      await tx.loyaltyCardTemplate.updateMany({
+        where: { businessId },
+        data: { isActive: false },
+      });
+    }
+
+    return tx.loyaltyCardTemplate.create({
+      data: {
+        title,
+        businessId,
+        maxPoints,
+        cardColor,
+        accentColor,
+        textColor,
+        isActive: isActive ?? false,
+      },
+      select: {
+        id: true,
+        title: true,
+        maxPoints: true,
+        cardColor: true,
+        accentColor: true,
+        textColor: true,
+        isActive: true,
+        businessId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   });
 
   res.status(201).json(template);
@@ -107,13 +132,15 @@ export const createCardTemplate = async (req: Request, res: Response) => {
 
 export const updateCardTemplate = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { title, maxPoints, cardColor, accentColor, textColor } = req.body as {
-    title?: string;
-    maxPoints?: number;
-    cardColor?: string;
-    accentColor?: string;
-    textColor?: string;
-  };
+  const { title, maxPoints, cardColor, accentColor, textColor, isActive } =
+    req.body as {
+      title?: string;
+      maxPoints?: number;
+      cardColor?: string;
+      accentColor?: string;
+      textColor?: string;
+      isActive?: boolean;
+    };
 
   const data: {
     title?: string;
@@ -121,6 +148,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     cardColor?: string;
     accentColor?: string;
     textColor?: string;
+    isActive?: boolean;
   } = {};
 
   if (title !== undefined) {
@@ -158,25 +186,53 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     data.textColor = textColor;
   }
 
+  if (isActive !== undefined) {
+    if (typeof isActive !== "boolean") {
+      return res.status(400).json({ message: "isActive must be a boolean" });
+    }
+    data.isActive = isActive;
+  }
+
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ message: "no fields to update" });
   }
 
-  const template = await prisma.loyaltyCardTemplate.update({
-    where: { id },
-    data,
-    select: {
-      id: true,
-      title: true,
-      maxPoints: true,
-      cardColor: true,
-      accentColor: true,
-      textColor: true,
-      businessId: true,
-      createdAt: true,
-      updatedAt: true,
-    },
+  const template = await prisma.$transaction(async (tx) => {
+    if (data.isActive) {
+      const current = await tx.loyaltyCardTemplate.findUnique({
+        where: { id },
+        select: { businessId: true },
+      });
+      if (!current) {
+        return null;
+      }
+      await tx.loyaltyCardTemplate.updateMany({
+        where: { businessId: current.businessId },
+        data: { isActive: false },
+      });
+    }
+
+    return tx.loyaltyCardTemplate.update({
+      where: { id },
+      data,
+      select: {
+        id: true,
+        title: true,
+        maxPoints: true,
+        cardColor: true,
+        accentColor: true,
+        textColor: true,
+        isActive: true,
+        businessId: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
   });
+
+  if (!template) {
+    return res.status(404).json({ message: "template not found" });
+  }
 
   res.json(template);
 };
@@ -197,6 +253,7 @@ export const deleteCardTemplate = async (req: Request, res: Response) => {
       cardColor: true,
       accentColor: true,
       textColor: true,
+      isActive: true,
       businessId: true,
       createdAt: true,
       updatedAt: true,

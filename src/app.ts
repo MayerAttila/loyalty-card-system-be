@@ -7,6 +7,7 @@ import { customerRoutes } from "./modules/costumer/costumer.routes.js";
 import { businessRouter } from "./modules/business/business.router.js";
 import { userRoutes } from "./modules/user/user.router.js";
 import { cardTemplateRouter } from "./modules/loyalty-card-template/card.template.router.js";
+import { userCardRouter } from "./modules/user-loyalty-card/user.card.router.js";
 import { env } from "./config/env.js";
 
 const corsOrigins = env.CORS_ORIGIN.split(",")
@@ -33,5 +34,6 @@ app.use("/customer", customerRoutes);
 app.use("/business", businessRouter);
 app.use("/user", userRoutes);
 app.use("/card-template", cardTemplateRouter);
+app.use("/user-loyalty-card", userCardRouter);
 
 app.use(errorMiddleware);
