@@ -95,38 +95,48 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "isActive must be a boolean" });
   }
 
-  const template = await prisma.$transaction(async (tx) => {
-    if (isActive) {
-      await tx.loyaltyCardTemplate.updateMany({
-        where: { businessId },
-        data: { isActive: false },
+  let template;
+  try {
+    template = await prisma.$transaction(async (tx) => {
+      if (isActive) {
+        await tx.loyaltyCardTemplate.updateMany({
+          where: { businessId },
+          data: { isActive: false },
+        });
+      }
+
+      return tx.loyaltyCardTemplate.create({
+        data: {
+          title,
+          businessId,
+          maxPoints,
+          cardColor,
+          accentColor,
+          textColor,
+          isActive: isActive ?? false,
+        },
+        select: {
+          id: true,
+          title: true,
+          maxPoints: true,
+          cardColor: true,
+          accentColor: true,
+          textColor: true,
+          isActive: true,
+          businessId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "P2002") {
+      return res.status(409).json({
+        message: "template title already exists for this business",
       });
     }
-
-    return tx.loyaltyCardTemplate.create({
-      data: {
-        title,
-        businessId,
-        maxPoints,
-        cardColor,
-        accentColor,
-        textColor,
-        isActive: isActive ?? false,
-      },
-      select: {
-        id: true,
-        title: true,
-        maxPoints: true,
-        cardColor: true,
-        accentColor: true,
-        textColor: true,
-        isActive: true,
-        businessId: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
-  });
+    throw error;
+  }
 
   const business = await prisma.business.findUnique({
     where: { id: businessId },
