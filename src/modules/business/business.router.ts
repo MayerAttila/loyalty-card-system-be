@@ -13,8 +13,14 @@ const upload = multer({
 businessRouter.get("/", businessController.getAllBusinesses);
 businessRouter.get("/id/:id", businessController.getBusinessById);
 businessRouter.get("/id/:id/logo", businessController.getBusinessLogo);
+businessRouter.get("/id/:id/stamps", businessController.getBusinessStamps);
 businessRouter.get("/id/:id/stamp-on", businessController.getBusinessStampOn);
 businessRouter.get("/id/:id/stamp-off", businessController.getBusinessStampOff);
+businessRouter.delete("/id/:id/logo", businessController.deleteBusinessLogo);
+businessRouter.delete(
+  "/id/:id/stamps/:imageId",
+  businessController.deleteBusinessStampImage
+);
 businessRouter.post("/", businessController.createBusiness);
 businessRouter.patch("/id/:id", businessController.updateBusiness);
 businessRouter.post(

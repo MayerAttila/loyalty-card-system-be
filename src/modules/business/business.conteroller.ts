@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
-import { uploadImageBuffer } from "../../lib/gcs.js";
+import { deleteImageByUrl, uploadImageBuffer } from "../../lib/gcs.js";
 
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
@@ -209,10 +209,6 @@ export const uploadBusinessStampOn = async (req: Request, res: Response) => {
     return res.status(404).json({ message: "business not found" });
   }
 
-  await prisma.image.deleteMany({
-    where: { businessId: id, kind: "STAMP_ON" },
-  });
-
   const stampOnObjectName = `business/${id}/stamp-on-${Date.now()}.${getImageExtension(
     file.mimetype
   )}`;
@@ -255,10 +251,6 @@ export const uploadBusinessStampOff = async (req: Request, res: Response) => {
     return res.status(404).json({ message: "business not found" });
   }
 
-  await prisma.image.deleteMany({
-    where: { businessId: id, kind: "STAMP_OFF" },
-  });
-
   const stampOffObjectName = `business/${id}/stamp-off-${Date.now()}.${getImageExtension(
     file.mimetype
   )}`;
@@ -294,10 +286,57 @@ export const getBusinessLogo = async (req: Request, res: Response) => {
   res.redirect(image.url);
 };
 
+export const deleteBusinessLogo = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const image = await prisma.image.findFirst({
+    where: { businessId: id, kind: "BUSINESS_LOGO" },
+  });
+
+  if (!image) {
+    return res.status(404).json({ message: "logo not found" });
+  }
+
+  try {
+    await deleteImageByUrl(image.url);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "unable to delete logo" });
+  }
+
+  await prisma.image.delete({ where: { id: image.id } });
+  res.status(204).end();
+};
+
+export const getBusinessStamps = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const business = await prisma.business.findUnique({ where: { id } });
+  if (!business) {
+    return res.status(404).json({ message: "business not found" });
+  }
+
+  const images = await prisma.image.findMany({
+    where: { businessId: id, kind: { in: ["STAMP_ON", "STAMP_OFF"] } },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      url: true,
+      mimeType: true,
+      kind: true,
+      createdAt: true,
+    },
+  });
+
+  res.json({
+    stampOn: images.filter((image) => image.kind === "STAMP_ON"),
+    stampOff: images.filter((image) => image.kind === "STAMP_OFF"),
+  });
+};
+
 export const getBusinessStampOn = async (req: Request, res: Response) => {
   const { id } = req.params;
   const image = await prisma.image.findFirst({
     where: { businessId: id, kind: "STAMP_ON" },
+    orderBy: { createdAt: "desc" },
   });
 
   if (!image) {
@@ -312,6 +351,7 @@ export const getBusinessStampOff = async (req: Request, res: Response) => {
   const { id } = req.params;
   const image = await prisma.image.findFirst({
     where: { businessId: id, kind: "STAMP_OFF" },
+    orderBy: { createdAt: "desc" },
   });
 
   if (!image) {
@@ -322,6 +362,32 @@ export const getBusinessStampOff = async (req: Request, res: Response) => {
   res.redirect(image.url);
 };
 
+export const deleteBusinessStampImage = async (req: Request, res: Response) => {
+  const { id, imageId } = req.params;
+
+  const image = await prisma.image.findFirst({
+    where: {
+      id: imageId,
+      businessId: id,
+      kind: { in: ["STAMP_ON", "STAMP_OFF"] },
+    },
+  });
+
+  if (!image) {
+    return res.status(404).json({ message: "stamp image not found" });
+  }
+
+  try {
+    await deleteImageByUrl(image.url);
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: "unable to delete stamp image" });
+  }
+
+  await prisma.image.delete({ where: { id: imageId } });
+  res.status(204).end();
+};
+
 export const businessController = {
   getAllBusinesses,
   getBusinessById,
@@ -329,8 +395,11 @@ export const businessController = {
   updateBusiness,
   uploadBusinessLogo,
   getBusinessLogo,
+  deleteBusinessLogo,
   uploadBusinessStampOn,
   uploadBusinessStampOff,
+  getBusinessStamps,
   getBusinessStampOn,
   getBusinessStampOff,
+  deleteBusinessStampImage,
 };
