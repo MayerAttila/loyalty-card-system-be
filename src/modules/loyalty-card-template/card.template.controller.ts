@@ -13,6 +13,9 @@ export const getCardTemplateById = async (req: Request, res: Response) => {
       cardColor: true,
       accentColor: true,
       textColor: true,
+      useStampImages: true,
+      stampOnImageId: true,
+      stampOffImageId: true,
       isActive: true,
       businessId: true,
       createdAt: true,
@@ -37,6 +40,9 @@ export const getCardTemplatesByBusinessId = async (
       cardColor: true,
       accentColor: true,
       textColor: true,
+      useStampImages: true,
+      stampOnImageId: true,
+      stampOffImageId: true,
       isActive: true,
       businessId: true,
       createdAt: true,
@@ -57,6 +63,9 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     accentColor,
     textColor,
     isActive,
+    useStampImages,
+    stampOnImageId,
+    stampOffImageId,
   } = req.body as {
     title?: string;
     businessId?: string;
@@ -65,6 +74,9 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     accentColor?: string;
     textColor?: string;
     isActive?: boolean;
+    useStampImages?: boolean;
+    stampOnImageId?: string | null;
+    stampOffImageId?: string | null;
   };
 
   if (!title || typeof title !== "string") {
@@ -95,6 +107,48 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "isActive must be a boolean" });
   }
 
+  if (useStampImages !== undefined && typeof useStampImages !== "boolean") {
+    return res
+      .status(400)
+      .json({ message: "useStampImages must be a boolean" });
+  }
+
+  if (
+    stampOnImageId !== undefined &&
+    stampOnImageId !== null &&
+    typeof stampOnImageId !== "string"
+  ) {
+    return res.status(400).json({ message: "stampOnImageId must be a string" });
+  }
+
+  if (
+    stampOffImageId !== undefined &&
+    stampOffImageId !== null &&
+    typeof stampOffImageId !== "string"
+  ) {
+    return res.status(400).json({ message: "stampOffImageId must be a string" });
+  }
+
+  if (stampOnImageId) {
+    const stampOn = await prisma.image.findFirst({
+      where: { id: stampOnImageId, businessId, kind: "STAMP_ON" },
+      select: { id: true },
+    });
+    if (!stampOn) {
+      return res.status(400).json({ message: "invalid stampOnImageId" });
+    }
+  }
+
+  if (stampOffImageId) {
+    const stampOff = await prisma.image.findFirst({
+      where: { id: stampOffImageId, businessId, kind: "STAMP_OFF" },
+      select: { id: true },
+    });
+    if (!stampOff) {
+      return res.status(400).json({ message: "invalid stampOffImageId" });
+    }
+  }
+
   let template;
   try {
     template = await prisma.$transaction(async (tx) => {
@@ -114,6 +168,9 @@ export const createCardTemplate = async (req: Request, res: Response) => {
           accentColor,
           textColor,
           isActive: isActive ?? false,
+          useStampImages: useStampImages ?? true,
+          stampOnImageId: stampOnImageId ?? null,
+          stampOffImageId: stampOffImageId ?? null,
         },
         select: {
           id: true,
@@ -122,6 +179,9 @@ export const createCardTemplate = async (req: Request, res: Response) => {
           cardColor: true,
           accentColor: true,
           textColor: true,
+          useStampImages: true,
+          stampOnImageId: true,
+          stampOffImageId: true,
           isActive: true,
           businessId: true,
           createdAt: true,
@@ -196,15 +256,27 @@ export const createCardTemplate = async (req: Request, res: Response) => {
 
 export const updateCardTemplate = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { title, maxPoints, cardColor, accentColor, textColor, isActive } =
-    req.body as {
-      title?: string;
-      maxPoints?: number;
-      cardColor?: string;
-      accentColor?: string;
-      textColor?: string;
-      isActive?: boolean;
-    };
+  const {
+    title,
+    maxPoints,
+    cardColor,
+    accentColor,
+    textColor,
+    isActive,
+    useStampImages,
+    stampOnImageId,
+    stampOffImageId,
+  } = req.body as {
+    title?: string;
+    maxPoints?: number;
+    cardColor?: string;
+    accentColor?: string;
+    textColor?: string;
+    isActive?: boolean;
+    useStampImages?: boolean;
+    stampOnImageId?: string | null;
+    stampOffImageId?: string | null;
+  };
 
   const data: {
     title?: string;
@@ -213,6 +285,9 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     accentColor?: string;
     textColor?: string;
     isActive?: boolean;
+    useStampImages?: boolean;
+    stampOnImageId?: string | null;
+    stampOffImageId?: string | null;
   } = {};
 
   if (title !== undefined) {
@@ -257,6 +332,71 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     data.isActive = isActive;
   }
 
+  if (useStampImages !== undefined) {
+    if (typeof useStampImages !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "useStampImages must be a boolean" });
+    }
+    data.useStampImages = useStampImages;
+  }
+
+  if (stampOnImageId !== undefined) {
+    if (stampOnImageId !== null && typeof stampOnImageId !== "string") {
+      return res.status(400).json({ message: "stampOnImageId must be a string" });
+    }
+    data.stampOnImageId = stampOnImageId;
+  }
+
+  if (stampOffImageId !== undefined) {
+    if (stampOffImageId !== null && typeof stampOffImageId !== "string") {
+      return res.status(400).json({ message: "stampOffImageId must be a string" });
+    }
+    data.stampOffImageId = stampOffImageId;
+  }
+
+  if (data.stampOnImageId) {
+    const current = await prisma.loyaltyCardTemplate.findUnique({
+      where: { id },
+      select: { businessId: true },
+    });
+    if (!current) {
+      return res.status(404).json({ message: "template not found" });
+    }
+    const stampOn = await prisma.image.findFirst({
+      where: {
+        id: data.stampOnImageId,
+        businessId: current.businessId,
+        kind: "STAMP_ON",
+      },
+      select: { id: true },
+    });
+    if (!stampOn) {
+      return res.status(400).json({ message: "invalid stampOnImageId" });
+    }
+  }
+
+  if (data.stampOffImageId) {
+    const current = await prisma.loyaltyCardTemplate.findUnique({
+      where: { id },
+      select: { businessId: true },
+    });
+    if (!current) {
+      return res.status(404).json({ message: "template not found" });
+    }
+    const stampOff = await prisma.image.findFirst({
+      where: {
+        id: data.stampOffImageId,
+        businessId: current.businessId,
+        kind: "STAMP_OFF",
+      },
+      select: { id: true },
+    });
+    if (!stampOff) {
+      return res.status(400).json({ message: "invalid stampOffImageId" });
+    }
+  }
+
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ message: "no fields to update" });
   }
@@ -286,6 +426,9 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         cardColor: true,
         accentColor: true,
         textColor: true,
+        useStampImages: true,
+        stampOnImageId: true,
+        stampOffImageId: true,
         isActive: true,
         businessId: true,
         createdAt: true,
@@ -317,6 +460,9 @@ export const deleteCardTemplate = async (req: Request, res: Response) => {
       cardColor: true,
       accentColor: true,
       textColor: true,
+      useStampImages: true,
+      stampOnImageId: true,
+      stampOffImageId: true,
       isActive: true,
       businessId: true,
       createdAt: true,

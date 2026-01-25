@@ -104,11 +104,7 @@ model Image {
   businessId  String?
   business    Business? @relation(fields: [businessId], references: [id])
 
-  loyaltyCardTemplateId String?
-  loyaltyCardTemplate   LoyaltyCardTemplate? @relation(fields: [loyaltyCardTemplateId], references: [id])
-
   @@index([businessId, kind])
-  @@index([loyaltyCardTemplateId, kind])
 }
 
 model Costumer {
@@ -131,6 +127,9 @@ model LoyaltyCardTemplate{
   cardColor   String   
   accentColor String   
   textColor   String   
+  useStampImages   Boolean  @default(true)
+  stampOnImageId  String?
+  stampOffImageId String?
   isActive    Boolean  @default(false)
   googleWalletClassId String? @unique
   createdAt   DateTime @default(now())
@@ -138,7 +137,6 @@ model LoyaltyCardTemplate{
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
   costumerLoyaltyCard CostumerLoyaltyCard[]
-  images      Image[]
 
   @@unique([businessId, title])
 }
