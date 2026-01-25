@@ -77,6 +77,10 @@ export const getBusinessById = async (req: Request, res: Response) => {
       id: true,
       name: true,
       address: true,
+      locationPlaceId: true,
+      locationAddress: true,
+      locationLat: true,
+      locationLng: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -121,19 +125,88 @@ export const createBusiness = async (req: Request, res: Response) => {
 
 export const updateBusiness = async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { name, address } = req.body as { name?: string; address?: string };
+  const {
+    name,
+    address,
+    locationPlaceId,
+    locationAddress,
+    locationLat,
+    locationLng,
+  } = req.body as {
+    name?: string;
+    address?: string | null;
+    locationPlaceId?: string | null;
+    locationAddress?: string | null;
+    locationLat?: number | null;
+    locationLng?: number | null;
+  };
 
   if (!name || typeof name !== "string") {
     return res.status(400).json({ message: "name is required" });
   }
 
+  if (address !== undefined && address !== null && typeof address !== "string") {
+    return res.status(400).json({ message: "address must be a string" });
+  }
+
+  if (
+    locationPlaceId !== undefined &&
+    locationPlaceId !== null &&
+    typeof locationPlaceId !== "string"
+  ) {
+    return res.status(400).json({ message: "locationPlaceId must be a string" });
+  }
+
+  if (
+    locationAddress !== undefined &&
+    locationAddress !== null &&
+    typeof locationAddress !== "string"
+  ) {
+    return res.status(400).json({ message: "locationAddress must be a string" });
+  }
+
+  if (
+    locationLat !== undefined &&
+    locationLat !== null &&
+    typeof locationLat !== "number"
+  ) {
+    return res.status(400).json({ message: "locationLat must be a number" });
+  }
+
+  if (
+    locationLng !== undefined &&
+    locationLng !== null &&
+    typeof locationLng !== "number"
+  ) {
+    return res.status(400).json({ message: "locationLng must be a number" });
+  }
+
+  const data: {
+    name: string;
+    address?: string | null;
+    locationPlaceId?: string | null;
+    locationAddress?: string | null;
+    locationLat?: number | null;
+    locationLng?: number | null;
+  } = { name };
+
+  if (address !== undefined) data.address = address;
+  if (locationPlaceId !== undefined) data.locationPlaceId = locationPlaceId;
+  if (locationAddress !== undefined) data.locationAddress = locationAddress;
+  if (locationLat !== undefined) data.locationLat = locationLat;
+  if (locationLng !== undefined) data.locationLng = locationLng;
+
   const business = await prisma.business.update({
     where: { id },
-    data: { name, address },
+    data,
     select: {
       id: true,
       name: true,
       address: true,
+      locationPlaceId: true,
+      locationAddress: true,
+      locationLat: true,
+      locationLng: true,
       createdAt: true,
       updatedAt: true,
     },

@@ -74,6 +74,10 @@ model Business {
   id          String      @id @default(uuid())
   name        String    
   address     String?   
+  locationPlaceId String?
+  locationAddress String?
+  locationLat Float?
+  locationLng Float?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   loyaltyCardTemplates LoyaltyCardTemplate[]
