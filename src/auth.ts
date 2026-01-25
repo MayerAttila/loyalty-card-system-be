@@ -87,12 +87,23 @@ export const authConfig: ExpressAuthConfig = {
           where: { id: String(token.id) },
           include: {
             business: {
-              select: { name: true },
+              select: {
+                name: true,
+                images: {
+                  where: { kind: "BUSINESS_LOGO" },
+                  select: { id: true },
+                  take: 1,
+                },
+              },
             },
           },
         });
 
         if (user) {
+          const businessImages =
+            (user.business as { images?: Array<{ id: string }> } | null)?.images ??
+            [];
+          const hasLogo = businessImages.length > 0;
           (session.user as any).id = user.id;
           (session.user as any).email = user.email;
           (session.user as any).name = user.name;
@@ -100,6 +111,7 @@ export const authConfig: ExpressAuthConfig = {
           (session.user as any).businessId = user.businessId;
           (session.user as any).businessName = user.business.name;
           (session.user as any).approved = user.approved;
+          (session.user as any).businessHasLogo = hasLogo;
           return session;
         }
 
