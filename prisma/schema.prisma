@@ -83,7 +83,7 @@ model Business {
   loyaltyCardTemplates LoyaltyCardTemplate[]
   employees    User[]
   images       Image[]
-  customers    Costumer[]
+  customers    Customer[]
 }
 
 enum ImageKind {
@@ -107,13 +107,13 @@ model Image {
   @@index([businessId, kind])
 }
 
-model Costumer {
+model Customer {
   id        String   @id @default(uuid())
   name      String
   email     String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  costumerLoyaltyCard CostumerLoyaltyCard[]
+  customerLoyaltyCards CustomerLoyaltyCard[]
   businessId String
   business   Business @relation(fields: [businessId], references: [id])
 
@@ -136,44 +136,44 @@ model LoyaltyCardTemplate{
   updatedAt   DateTime @updatedAt
   businessId  String
   business    Business @relation(fields: [businessId], references: [id])
-  costumerLoyaltyCard CostumerLoyaltyCard[]
+  customerLoyaltyCards CustomerLoyaltyCard[]
 
   @@unique([businessId, title])
 }
 
-model CostumerLoyaltyCard {
+model CustomerLoyaltyCard {
   id      String      @id @default(uuid())
-  costumerId  String
-  costumer    Costumer       @relation(fields: [costumerId], references: [id])
+  customerId  String
+  customer    Customer       @relation(fields: [customerId], references: [id])
   loyaltyCardTemplateId String
   template LoyaltyCardTemplate @relation(fields: [loyaltyCardTemplateId], references: [id])
   googleWalletObjectId String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  CostumerLoyaltyCardCycle CostumerLoyaltyCardCycle[]
+  customerLoyaltyCardCycles CustomerLoyaltyCardCycle[]
 
-  @@unique([costumerId, loyaltyCardTemplateId])
+  @@unique([customerId, loyaltyCardTemplateId])
 }
 
-model CostumerLoyaltyCardCycle {
+model CustomerLoyaltyCardCycle {
   id      String      @id @default(uuid())
   stampCount  Int      @default(0)
   cycleNumber Int
-  costumerLoyaltyCardId String
-  costumerLoyaltyCard   CostumerLoyaltyCard @relation(fields: [costumerLoyaltyCardId], references: [id])
+  customerLoyaltyCardId String
+  customerLoyaltyCard   CustomerLoyaltyCard @relation(fields: [customerLoyaltyCardId], references: [id])
   startedAt DateTime @default(now())
   completedAt   DateTime?
   stampingLogs StampingLog[]
 
-  @@unique([costumerLoyaltyCardId, cycleNumber])
+  @@unique([customerLoyaltyCardId, cycleNumber])
   
 
 }
 
 model StampingLog {
   id            String      @id @default(uuid())
-  costumerLoyaltyCardCycleId String
-  costumerLoyaltyCardCycle   CostumerLoyaltyCardCycle @relation(fields: [costumerLoyaltyCardCycleId], references: [id])
+  customerLoyaltyCardCycleId String
+  customerLoyaltyCardCycle   CustomerLoyaltyCardCycle @relation(fields: [customerLoyaltyCardCycleId], references: [id])
   stampedById   String
   stampedBy     User  @relation(fields: [stampedById], references: [id])
   stampedAt     DateTime    @default(now())

@@ -2,28 +2,28 @@ import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 
 async function getAllCustomer(req: Request, res: Response) {
-  const customers = await prisma.costumer.findMany();
+  const customers = await prisma.customer.findMany();
   res.json(customers);
 }
 
 async function getCustomerByEmail(req: Request, res: Response) {
   const { email } = req.params;
 
-  const costumer = await prisma.costumer.findUnique({
+  const customer = await prisma.customer.findUnique({
     where: { email },
   });
 
-  res.json(costumer);
+  res.json(customer);
 }
 
 async function getCustomerById(req: Request, res: Response) {
   const { id } = req.params;
 
-  const costumer = await prisma.costumer.findUnique({
+  const customer = await prisma.customer.findUnique({
     where: { id },
   });
 
-  res.json(costumer);
+  res.json(customer);
 }
 
 async function createCustomer(req: Request, res: Response) {
@@ -53,10 +53,23 @@ async function createCustomer(req: Request, res: Response) {
     return res.status(404).json({ message: "business not found" });
   }
 
-  const costumer = await prisma.costumer.create({
-    data: { email, name, businessId },
+  const existing = await prisma.customer.findUnique({
+    where: { email },
   });
 
+  if (existing && existing.businessId !== businessId) {
+    return res.status(409).json({
+      message: "customer already exists for a different business",
+    });
+  }
+
+  const customer =
+    existing ??
+    (await prisma.customer.create({
+      data: { email, name, businessId },
+    }));
+
+  let loyaltyCardId: string | null = null;
   const activeTemplate =
     (await prisma.loyaltyCardTemplate.findFirst({
       where: { businessId, isActive: true },
@@ -71,29 +84,46 @@ async function createCustomer(req: Request, res: Response) {
   if (activeTemplate) {
     try {
       await prisma.$transaction(async (tx) => {
-        const card = await tx.costumerLoyaltyCard.create({
+        const card = await tx.customerLoyaltyCard.create({
           data: {
-            costumerId: costumer.id,
+            customerId: customer.id,
             loyaltyCardTemplateId: activeTemplate.id,
           },
         });
-        await tx.costumerLoyaltyCardCycle.create({
+        loyaltyCardId = card.id;
+        await tx.customerLoyaltyCardCycle.create({
           data: {
-            costumerLoyaltyCardId: card.id,
+            customerLoyaltyCardId: card.id,
             cycleNumber: 1,
             stampCount: 0,
           },
         });
       });
     } catch (error) {
-      console.error("auto-create loyalty card failed", error);
+      if ((error as { code?: string }).code === "P2002") {
+        const existingCard = await prisma.customerLoyaltyCard.findUnique({
+          where: {
+            customerId_loyaltyCardTemplateId: {
+              customerId: customer.id,
+              loyaltyCardTemplateId: activeTemplate.id,
+            },
+          },
+          select: { id: true },
+        });
+        loyaltyCardId = existingCard?.id ?? null;
+      } else {
+        console.error("auto-create loyalty card failed", error);
+      }
     }
   }
 
-  res.status(201).json(costumer);
+  res.status(existing ? 200 : 201).json({
+    customer,
+    cardId: loyaltyCardId,
+  });
 }
 
-export const costumerControllers = {
+export const customerControllers = {
   getCustomerByEmail,
   getAllCustomer,
   getCustomerById,

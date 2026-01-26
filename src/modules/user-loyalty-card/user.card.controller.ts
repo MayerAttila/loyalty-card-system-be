@@ -5,7 +5,7 @@ import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.j
 export const getCardById = async (req: Request, res: Response) => {
   const { id } = req.params;
 
-  const card = await prisma.costumerLoyaltyCard.findUnique({
+  const card = await prisma.customerLoyaltyCard.findUnique({
     where: { id },
     include: {
       template: {
@@ -19,7 +19,7 @@ export const getCardById = async (req: Request, res: Response) => {
           businessId: true,
         },
       },
-      CostumerLoyaltyCardCycle: {
+      customerLoyaltyCardCycles: {
         orderBy: { cycleNumber: "desc" },
         take: 1,
       },
@@ -30,10 +30,10 @@ export const getCardById = async (req: Request, res: Response) => {
 };
 
 export const getCardsByCustomerId = async (req: Request, res: Response) => {
-  const { costumerId } = req.params;
+  const { customerId } = req.params;
 
-  const cards = await prisma.costumerLoyaltyCard.findMany({
-    where: { costumerId },
+  const cards = await prisma.customerLoyaltyCard.findMany({
+    where: { customerId },
     include: {
       template: {
         select: {
@@ -46,7 +46,7 @@ export const getCardsByCustomerId = async (req: Request, res: Response) => {
           businessId: true,
         },
       },
-      CostumerLoyaltyCardCycle: {
+      customerLoyaltyCardCycles: {
         orderBy: { cycleNumber: "desc" },
         take: 1,
       },
@@ -58,13 +58,13 @@ export const getCardsByCustomerId = async (req: Request, res: Response) => {
 };
 
 export const createCustomerCard = async (req: Request, res: Response) => {
-  const { costumerId, loyaltyCardTemplateId } = req.body as {
-    costumerId?: string;
+  const { customerId, loyaltyCardTemplateId } = req.body as {
+    customerId?: string;
     loyaltyCardTemplateId?: string;
   };
 
-  if (!costumerId || typeof costumerId !== "string") {
-    return res.status(400).json({ message: "costumerId is required" });
+  if (!customerId || typeof customerId !== "string") {
+    return res.status(400).json({ message: "customerId is required" });
   }
 
   if (!loyaltyCardTemplateId || typeof loyaltyCardTemplateId !== "string") {
@@ -73,9 +73,9 @@ export const createCustomerCard = async (req: Request, res: Response) => {
       .json({ message: "loyaltyCardTemplateId is required" });
   }
 
-  const [costumer, template] = await Promise.all([
-    prisma.costumer.findUnique({
-      where: { id: costumerId },
+  const [customer, template] = await Promise.all([
+    prisma.customer.findUnique({
+      where: { id: customerId },
       select: { id: true, businessId: true },
     }),
     prisma.loyaltyCardTemplate.findUnique({
@@ -84,7 +84,7 @@ export const createCustomerCard = async (req: Request, res: Response) => {
     }),
   ]);
 
-  if (!costumer) {
+  if (!customer) {
     return res.status(404).json({ message: "customer not found" });
   }
 
@@ -92,18 +92,18 @@ export const createCustomerCard = async (req: Request, res: Response) => {
     return res.status(404).json({ message: "card template not found" });
   }
 
-  if (costumer.businessId !== template.businessId) {
+  if (customer.businessId !== template.businessId) {
     return res.status(400).json({ message: "business mismatch" });
   }
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const card = await tx.costumerLoyaltyCard.create({
-        data: { costumerId, loyaltyCardTemplateId },
+      const card = await tx.customerLoyaltyCard.create({
+        data: { customerId, loyaltyCardTemplateId },
       });
-      const cycle = await tx.costumerLoyaltyCardCycle.create({
+      const cycle = await tx.customerLoyaltyCardCycle.create({
         data: {
-          costumerLoyaltyCardId: card.id,
+          customerLoyaltyCardId: card.id,
           cycleNumber: 1,
           stampCount: 0,
         },
@@ -128,16 +128,16 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "id is required" });
   }
 
-  const card = await prisma.costumerLoyaltyCard.findUnique({
+  const card = await prisma.customerLoyaltyCard.findUnique({
     where: { id },
     include: {
-      costumer: true,
+      customer: true,
       template: {
         include: {
           business: true,
         },
       },
-      CostumerLoyaltyCardCycle: {
+      customerLoyaltyCardCycles: {
         orderBy: { cycleNumber: "desc" },
         take: 1,
       },
@@ -148,7 +148,8 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     return res.status(404).json({ message: "card not found" });
   }
 
-  const classId = card.template.googleWalletClassId ?? `${issuerId}.${card.template.id}`;
+  const classId =
+    card.template.googleWalletClassId ?? `${issuerId}.${card.template.id}`;
   const objectId = card.googleWalletObjectId ?? `${issuerId}.${card.id}`;
 
   const classRes = await walletRequest(
@@ -176,7 +177,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
         },
         accountIdLabel: "Card ID",
         accountNameLabel: "Customer",
-        reviewStatus: "DRAFT",
+        reviewStatus: "underReview",
       },
     });
     if (!createClassRes.ok) {
@@ -216,7 +217,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     `/loyaltyObject/${encodeURIComponent(objectId)}`
   );
   if (objectRes.status === 404) {
-    const stampCount = card.CostumerLoyaltyCardCycle[0]?.stampCount ?? 0;
+    const stampCount = card.customerLoyaltyCardCycles[0]?.stampCount ?? 0;
     const createObjectRes = await walletRequest("/loyaltyObject", {
       method: "POST",
       body: {
@@ -224,7 +225,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
         classId,
         state: "ACTIVE",
         accountId: card.id,
-        accountName: card.costumer.name,
+        accountName: card.customer.name,
         barcode: {
           type: "QR_CODE",
           value: card.id,
@@ -239,7 +240,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
         textModulesData: [
           {
             header: "Customer",
-            body: card.costumer.email,
+            body: card.customer.email,
           },
         ],
       },
@@ -258,7 +259,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
       });
     }
     if (!card.googleWalletObjectId) {
-      await prisma.costumerLoyaltyCard.update({
+      await prisma.customerLoyaltyCard.update({
         where: { id: card.id },
         data: { googleWalletObjectId: objectId },
       });

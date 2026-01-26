@@ -5,7 +5,7 @@ export const userCardRouter = Router();
 
 userCardRouter.get("/id/:id", userCardControllers.getCardById);
 userCardRouter.get(
-  "/customer/:costumerId",
+  "/customer/:customerId",
   userCardControllers.getCardsByCustomerId
 );
 userCardRouter.post("/", userCardControllers.createCustomerCard);

@@ -3,7 +3,7 @@ import express from "express";
 import cors from "cors";
 import { authConfig } from "./auth.js";
 import { errorMiddleware } from "./common/errors/errorMiddleware.js";
-import { customerRoutes } from "./modules/costumer/costumer.routes.js";
+import { customerRoutes } from "./modules/customer/customer.routes.js";
 import { businessRouter } from "./modules/business/business.router.js";
 import { userRoutes } from "./modules/user/user.router.js";
 import { cardTemplateRouter } from "./modules/loyalty-card-template/card.template.router.js";

@@ -391,7 +391,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
           },
           accountIdLabel: "Card ID",
           accountNameLabel: "Customer",
-          reviewStatus: "DRAFT",
+          reviewStatus: "underReview",
         },
       });
 
@@ -462,9 +462,41 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
 
 export const deleteCardTemplate = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const forceDelete = req.query.force === "1";
 
   if (!id) {
     return res.status(400).json({ message: "id is required" });
+  }
+
+  const existingCards = await prisma.customerLoyaltyCard.findMany({
+    where: { loyaltyCardTemplateId: id },
+    select: { id: true },
+  });
+
+  if (existingCards.length > 0 && !forceDelete) {
+    return res.status(409).json({
+      message: "template is in use by existing customer cards",
+      hint: "pass ?force=1 to delete cards and cycles",
+    });
+  }
+
+  if (existingCards.length > 0 && forceDelete) {
+    const cardIds = existingCards.map((card) => card.id);
+    await prisma.$transaction([
+      prisma.stampingLog.deleteMany({
+        where: {
+          customerLoyaltyCardCycle: {
+            customerLoyaltyCardId: { in: cardIds },
+          },
+        },
+      }),
+      prisma.customerLoyaltyCardCycle.deleteMany({
+        where: { customerLoyaltyCardId: { in: cardIds } },
+      }),
+      prisma.customerLoyaltyCard.deleteMany({
+        where: { id: { in: cardIds } },
+      }),
+    ]);
   }
 
   const template = await prisma.loyaltyCardTemplate.delete({
