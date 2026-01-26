@@ -26,6 +26,78 @@ async function getCustomerById(req: Request, res: Response) {
   res.json(customer);
 }
 
+async function getCustomersByBusinessId(req: Request, res: Response) {
+  const { businessId } = req.params;
+
+  const customers = await prisma.customer.findMany({
+    where: { businessId },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      businessId: true,
+      createdAt: true,
+      updatedAt: true,
+      _count: {
+        select: { customerLoyaltyCards: true },
+      },
+      customerLoyaltyCards: {
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: {
+          id: true,
+          googleWalletObjectId: true,
+          createdAt: true,
+          template: {
+            select: {
+              title: true,
+              maxPoints: true,
+            },
+          },
+          customerLoyaltyCardCycles: {
+            orderBy: { cycleNumber: "desc" },
+            take: 1,
+            select: {
+              cycleNumber: true,
+              stampCount: true,
+              stampingLogs: {
+                orderBy: { stampedAt: "desc" },
+                take: 1,
+                select: {
+                  stampedAt: true,
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  res.json(
+    customers.map((customer) => ({
+      ...customer,
+      loyaltyCardCount: customer._count.customerLoyaltyCards,
+      cardSummary: (() => {
+        const card = customer.customerLoyaltyCards[0];
+        if (!card) return null;
+        const cycle = card.customerLoyaltyCardCycles[0];
+        const maxPoints = card.template?.maxPoints ?? null;
+        const cycleNumber = cycle?.cycleNumber ?? 1;
+        return {
+          templateTitle: card.template?.title ?? null,
+          stampCount: cycle?.stampCount ?? 0,
+          maxPoints,
+          rewardsEarned: Math.max(cycleNumber - 1, 0),
+          lastActivity: cycle?.stampingLogs[0]?.stampedAt ?? null,
+          hasWallet: Boolean(card.googleWalletObjectId),
+        };
+      })(),
+    }))
+  );
+}
+
 async function createCustomer(req: Request, res: Response) {
   const { email, name, businessId } = req.body as {
     email?: string;
@@ -127,5 +199,6 @@ export const customerControllers = {
   getCustomerByEmail,
   getAllCustomer,
   getCustomerById,
+  getCustomersByBusinessId,
   createCustomer,
 };
