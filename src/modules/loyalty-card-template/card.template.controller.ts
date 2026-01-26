@@ -198,59 +198,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     throw error;
   }
 
-  const business = await prisma.business.findUnique({
-    where: { id: businessId },
-    select: { name: true },
-  });
-  if (!business) {
-    return res.status(404).json({ message: "business not found" });
-  }
-
-  const logo = await prisma.image.findFirst({
-    where: { businessId, kind: "BUSINESS_LOGO" },
-    select: { url: true },
-  });
-  if (!logo) {
-    return res.status(400).json({
-      message: "business logo is required for Google Wallet",
-    });
-  }
-
-  const classId = `${issuerId}.${template.id}`;
-  const createClassRes = await walletRequest("/loyaltyClass", {
-    method: "POST",
-    body: {
-      id: classId,
-      issuerName: business.name,
-      programName: template.title,
-      programLogo: {
-        sourceUri: { uri: logo.url },
-      },
-      accountIdLabel: "Card ID",
-      accountNameLabel: "Customer",
-      reviewStatus: "DRAFT",
-    },
-  });
-
-  if (!createClassRes.ok) {
-    const errorText = await createClassRes.text();
-    let errorDetails: unknown = errorText;
-    try {
-      errorDetails = JSON.parse(errorText);
-    } catch {
-      // keep raw text
-    }
-    return res.status(createClassRes.status).json({
-      message: "failed to create loyalty class",
-      details: errorDetails,
-    });
-  }
-
-  await prisma.loyaltyCardTemplate.update({
-    where: { id: template.id },
-    data: { googleWalletClassId: classId },
-  });
-
   res.status(201).json(template);
 };
 
@@ -288,6 +235,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     useStampImages?: boolean;
     stampOnImageId?: string | null;
     stampOffImageId?: string | null;
+    googleWalletClassId?: string;
   } = {};
 
   if (title !== undefined) {
@@ -399,6 +347,74 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
 
   if (Object.keys(data).length === 0) {
     return res.status(400).json({ message: "no fields to update" });
+  }
+
+  let classIdToCreate: string | null = null;
+  if (data.isActive) {
+    const current = await prisma.loyaltyCardTemplate.findUnique({
+      where: { id },
+      select: { businessId: true, title: true, googleWalletClassId: true },
+    });
+    if (!current) {
+      return res.status(404).json({ message: "template not found" });
+    }
+
+    if (!current.googleWalletClassId) {
+      const business = await prisma.business.findUnique({
+        where: { id: current.businessId },
+        select: { name: true },
+      });
+      if (!business) {
+        return res.status(404).json({ message: "business not found" });
+      }
+
+      const logo = await prisma.image.findFirst({
+        where: { businessId: current.businessId, kind: "BUSINESS_LOGO" },
+        select: { url: true },
+      });
+      if (!logo) {
+        return res.status(400).json({
+          message: "business logo is required for Google Wallet",
+        });
+      }
+
+      const classId = `${issuerId}.${id}`;
+      const programName = data.title ?? current.title;
+      const createClassRes = await walletRequest("/loyaltyClass", {
+        method: "POST",
+        body: {
+          id: classId,
+          issuerName: business.name,
+          programName,
+          programLogo: {
+            sourceUri: { uri: logo.url },
+          },
+          accountIdLabel: "Card ID",
+          accountNameLabel: "Customer",
+          reviewStatus: "DRAFT",
+        },
+      });
+
+      if (!createClassRes.ok) {
+        const errorText = await createClassRes.text();
+        let errorDetails: unknown = errorText;
+        try {
+          errorDetails = JSON.parse(errorText);
+        } catch {
+          // keep raw text
+        }
+        return res.status(createClassRes.status).json({
+          message: "failed to create loyalty class",
+          details: errorDetails,
+        });
+      }
+
+      classIdToCreate = classId;
+    }
+  }
+
+  if (classIdToCreate) {
+    data.googleWalletClassId = classIdToCreate;
   }
 
   const template = await prisma.$transaction(async (tx) => {
