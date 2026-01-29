@@ -13,3 +13,4 @@ userCardRouter.post(
   "/id/:id/google-wallet",
   userCardControllers.getGoogleWalletSaveLink
 );
+userCardRouter.post("/id/:id/stamp", userCardControllers.stampCard);

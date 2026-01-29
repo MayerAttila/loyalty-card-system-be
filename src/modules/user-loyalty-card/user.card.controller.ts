@@ -1,5 +1,7 @@
 import type { Request, Response } from "express";
+import { getSession } from "@auth/express";
 import { prisma } from "../../prisma/client.js";
+import { authConfig } from "../../auth.js";
 import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.js";
 
 export const getCardById = async (req: Request, res: Response) => {
@@ -284,9 +286,139 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
   res.json({ saveUrl, classId, objectId });
 };
 
+export const stampCard = async (req: Request, res: Response) => {
+  const session = await getSession(req, authConfig);
+  if (!session?.user) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+
+  const userId = (session.user as { id?: string }).id;
+  const businessId = (session.user as { businessId?: string }).businessId;
+  const approved = (session.user as { approved?: boolean }).approved;
+
+  if (!userId || !businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
+
+  if (approved === false) {
+    return res.status(403).json({ message: "user not approved" });
+  }
+
+  const { id: cardId } = req.params;
+  if (!cardId) {
+    return res.status(400).json({ message: "card id is required" });
+  }
+
+  const card = await prisma.customerLoyaltyCard.findUnique({
+    where: { id: cardId },
+    include: {
+      template: {
+        select: {
+          businessId: true,
+          maxPoints: true,
+          title: true,
+        },
+      },
+      customer: {
+        select: { name: true, email: true },
+      },
+      customerLoyaltyCardCycles: {
+        orderBy: { cycleNumber: "desc" },
+        take: 1,
+      },
+    },
+  });
+
+  if (!card) {
+    return res.status(404).json({ message: "card not found" });
+  }
+
+  if (card.template.businessId !== businessId) {
+    return res.status(403).json({ message: "card not in your business" });
+  }
+
+  const activeCycle = card.customerLoyaltyCardCycles[0];
+  if (!activeCycle) {
+    return res.status(400).json({ message: "no active card cycle" });
+  }
+
+  if (activeCycle.stampCount >= card.template.maxPoints) {
+    return res.status(409).json({ message: "card already full" });
+  }
+
+  const nextCount = activeCycle.stampCount + 1;
+  const completedAt =
+    nextCount >= card.template.maxPoints ? new Date() : undefined;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.customerLoyaltyCardCycle.update({
+      where: { id: activeCycle.id },
+      data: {
+        stampCount: nextCount,
+        ...(completedAt ? { completedAt } : {}),
+      },
+    });
+
+    await tx.stampingLog.create({
+      data: {
+        customerLoyaltyCardCycleId: activeCycle.id,
+        stampedById: userId,
+      },
+    });
+  });
+
+  const objectId =
+    card.googleWalletObjectId ?? `${issuerId}.${card.id}`;
+  let walletUpdated = false;
+  let walletUpdateError: unknown = null;
+
+  try {
+    const updateRes = await walletRequest(
+      `/loyaltyObject/${encodeURIComponent(objectId)}?updateMask=loyaltyPoints`,
+      {
+        method: "PATCH",
+        body: {
+          loyaltyPoints: {
+            label: "Stamps",
+            balance: {
+              string: `${nextCount}/${card.template.maxPoints}`,
+            },
+          },
+        },
+      }
+    );
+
+    if (updateRes.ok) {
+      walletUpdated = true;
+    } else {
+      const errorText = await updateRes.text();
+      try {
+        walletUpdateError = JSON.parse(errorText);
+      } catch {
+        walletUpdateError = errorText;
+      }
+    }
+  } catch (error) {
+    walletUpdateError = (error as Error).message ?? "wallet update failed";
+  }
+
+  return res.json({
+    cardId: card.id,
+    customerName: card.customer.name,
+    customerEmail: card.customer.email,
+    cardTitle: card.template.title,
+    stampCount: nextCount,
+    maxPoints: card.template.maxPoints,
+    completed: nextCount >= card.template.maxPoints,
+    walletUpdated,
+    walletUpdateError,
+  });
+};
+
 export const userCardControllers = {
   getCardById,
   getCardsByCustomerId,
   createCustomerCard,
   getGoogleWalletSaveLink,
+  stampCard,
 };
