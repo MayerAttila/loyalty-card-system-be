@@ -177,4 +177,7 @@ model StampingLog {
   stampedById   String
   stampedBy     User  @relation(fields: [stampedById], references: [id])
   stampedAt     DateTime    @default(now())
+  addedStamps   Int         @default(1)
+  stampCountAfter Int       @default(0)
+  cardCompleted Boolean     @default(false)
 }

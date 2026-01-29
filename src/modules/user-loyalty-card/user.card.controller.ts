@@ -363,6 +363,9 @@ export const stampCard = async (req: Request, res: Response) => {
       data: {
         customerLoyaltyCardCycleId: activeCycle.id,
         stampedById: userId,
+        addedStamps: 1,
+        stampCountAfter: nextCount,
+        cardCompleted: nextCount >= card.template.maxPoints,
       },
     });
   });
