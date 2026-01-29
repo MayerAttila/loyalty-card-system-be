@@ -305,8 +305,25 @@ export const stampCard = async (req: Request, res: Response) => {
   }
 
   const { id: cardId } = req.params;
+  const rawAddedStamps = (req.body as { addedStamps?: number | string })
+    ?.addedStamps;
   if (!cardId) {
     return res.status(400).json({ message: "card id is required" });
+  }
+
+  const parsedAddedStamps =
+    typeof rawAddedStamps === "string"
+      ? Number.parseInt(rawAddedStamps, 10)
+      : typeof rawAddedStamps === "number"
+      ? Math.trunc(rawAddedStamps)
+      : 1;
+
+  if (Number.isNaN(parsedAddedStamps) || parsedAddedStamps <= 0) {
+    return res.status(400).json({ message: "addedStamps must be a number >= 1" });
+  }
+
+  if (parsedAddedStamps > 50) {
+    return res.status(400).json({ message: "addedStamps is too large" });
   }
 
   const card = await prisma.customerLoyaltyCard.findUnique({
@@ -337,35 +354,80 @@ export const stampCard = async (req: Request, res: Response) => {
     return res.status(403).json({ message: "card not in your business" });
   }
 
-  const activeCycle = card.customerLoyaltyCardCycles[0];
-  if (!activeCycle) {
+  const latestCycle = card.customerLoyaltyCardCycles[0];
+  if (!latestCycle) {
     return res.status(400).json({ message: "no active card cycle" });
   }
 
-  if (activeCycle.stampCount >= card.template.maxPoints) {
-    return res.status(409).json({ message: "card already full" });
-  }
+  const cycleIsComplete =
+    latestCycle.completedAt !== null ||
+    latestCycle.stampCount >= card.template.maxPoints;
 
-  const nextCount = activeCycle.stampCount + 1;
-  const completedAt =
-    nextCount >= card.template.maxPoints ? new Date() : undefined;
+  let cycleId = latestCycle.id;
+  let cycleNumber = latestCycle.cycleNumber;
+  let currentStampCount = latestCycle.stampCount;
+
+  const maxPoints = card.template.maxPoints;
+  let remainingStamps = parsedAddedStamps;
+  let finalStampCount = currentStampCount;
+  let finalCompleted = false;
 
   await prisma.$transaction(async (tx) => {
-    await tx.customerLoyaltyCardCycle.update({
-      where: { id: activeCycle.id },
-      data: {
-        stampCount: nextCount,
-        ...(completedAt ? { completedAt } : {}),
-      },
-    });
+    if (cycleIsComplete) {
+      const newCycle = await tx.customerLoyaltyCardCycle.create({
+        data: {
+          customerLoyaltyCardId: card.id,
+          cycleNumber: latestCycle.cycleNumber + 1,
+          stampCount: 0,
+        },
+      });
+      cycleId = newCycle.id;
+      cycleNumber = newCycle.cycleNumber;
+      currentStampCount = 0;
+    }
+
+    while (remainingStamps > 0) {
+      const available = maxPoints - currentStampCount;
+      const addNow = Math.min(available, remainingStamps);
+      const updatedCount = currentStampCount + addNow;
+      const updatedCompletedAt =
+        updatedCount >= maxPoints ? new Date() : undefined;
+
+      await tx.customerLoyaltyCardCycle.update({
+        where: { id: cycleId },
+        data: {
+          stampCount: updatedCount,
+          ...(updatedCompletedAt ? { completedAt: updatedCompletedAt } : {}),
+        },
+      });
+
+      remainingStamps -= addNow;
+      finalStampCount = updatedCount;
+      finalCompleted = updatedCount >= maxPoints;
+
+      if (remainingStamps > 0 && updatedCount >= maxPoints) {
+        const newCycle = await tx.customerLoyaltyCardCycle.create({
+          data: {
+            customerLoyaltyCardId: card.id,
+            cycleNumber: cycleNumber + 1,
+            stampCount: 0,
+          },
+        });
+        cycleId = newCycle.id;
+        cycleNumber = newCycle.cycleNumber;
+        currentStampCount = 0;
+      } else {
+        currentStampCount = updatedCount;
+      }
+    }
 
     await tx.stampingLog.create({
       data: {
-        customerLoyaltyCardCycleId: activeCycle.id,
+        customerLoyaltyCardCycleId: cycleId,
         stampedById: userId,
-        addedStamps: 1,
-        stampCountAfter: nextCount,
-        cardCompleted: nextCount >= card.template.maxPoints,
+        addedStamps: parsedAddedStamps,
+        stampCountAfter: finalStampCount,
+        cardCompleted: finalCompleted,
       },
     });
   });
@@ -384,7 +446,7 @@ export const stampCard = async (req: Request, res: Response) => {
           loyaltyPoints: {
             label: "Stamps",
             balance: {
-              string: `${nextCount}/${card.template.maxPoints}`,
+              string: `${finalStampCount}/${maxPoints}`,
             },
           },
         },
@@ -410,9 +472,10 @@ export const stampCard = async (req: Request, res: Response) => {
     customerName: card.customer.name,
     customerEmail: card.customer.email,
     cardTitle: card.template.title,
-    stampCount: nextCount,
-    maxPoints: card.template.maxPoints,
-    completed: nextCount >= card.template.maxPoints,
+    stampCount: finalStampCount,
+    maxPoints,
+    completed: finalCompleted,
+    addedStamps: parsedAddedStamps,
     walletUpdated,
     walletUpdateError,
   });
