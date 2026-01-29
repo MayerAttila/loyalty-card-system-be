@@ -3,16 +3,6 @@ import { getSession } from "@auth/express";
 import { authConfig } from "../../auth.js";
 import { prisma } from "../../prisma/client.js";
 
-const MAX_LIMIT = 200;
-const DEFAULT_LIMIT = 50;
-
-function resolveLimit(raw: unknown) {
-  if (typeof raw !== "string") return DEFAULT_LIMIT;
-  const parsed = Number.parseInt(raw, 10);
-  if (Number.isNaN(parsed) || parsed <= 0) return DEFAULT_LIMIT;
-  return Math.min(parsed, MAX_LIMIT);
-}
-
 export const getStampingLogsForBusiness = async (
   req: Request,
   res: Response
@@ -41,8 +31,6 @@ export const getStampingLogsForBusiness = async (
     return res.status(403).json({ message: "insufficient permissions" });
   }
 
-  const limit = resolveLimit(req.query.limit);
-
   const logs = await prisma.stampingLog.findMany({
     where: {
       customerLoyaltyCardCycle: {
@@ -54,7 +42,6 @@ export const getStampingLogsForBusiness = async (
       },
     },
     orderBy: { stampedAt: "desc" },
-    take: limit,
     include: {
       stampedBy: {
         select: {
