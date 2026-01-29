@@ -22,10 +22,16 @@ export async function uploadImageBuffer(params: {
     resumable: false,
   });
 
-  const baseUrl =
-    process.env.GCS_PUBLIC_BASE_URL ??
-    `https://storage.googleapis.com/${bucketName}`;
+  const baseUrl = getPublicBaseUrl();
   return `${baseUrl}/${params.objectName}`;
+}
+
+export function getPublicBaseUrl() {
+  const bucketName = getBucketName();
+  return (
+    process.env.GCS_PUBLIC_BASE_URL ??
+    `https://storage.googleapis.com/${bucketName}`
+  );
 }
 
 function getObjectNameFromUrl(url: string) {

@@ -3,6 +3,7 @@ import { getSession } from "@auth/express";
 import { prisma } from "../../prisma/client.js";
 import { authConfig } from "../../auth.js";
 import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.js";
+import { getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
 
 export const getCardById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -220,6 +221,10 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
   );
   if (objectRes.status === 404) {
     const stampCount = card.customerLoyaltyCardCycles[0]?.stampCount ?? 0;
+    const heroImageUrl = getStampHeroImageUrl(
+      card.template.id,
+      stampCount
+    );
     const createObjectRes = await walletRequest("/loyaltyObject", {
       method: "POST",
       body: {
@@ -228,6 +233,11 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
         state: "ACTIVE",
         accountId: card.id,
         accountName: card.customer.name,
+        heroImage: {
+          sourceUri: {
+            uri: heroImageUrl,
+          },
+        },
         barcode: {
           type: "QR_CODE",
           value: card.id,
@@ -331,6 +341,7 @@ export const stampCard = async (req: Request, res: Response) => {
     include: {
       template: {
         select: {
+          id: true,
           businessId: true,
           maxPoints: true,
           title: true,
@@ -371,6 +382,7 @@ export const stampCard = async (req: Request, res: Response) => {
   let remainingStamps = parsedAddedStamps;
   let finalStampCount = currentStampCount;
   let finalCompleted = false;
+  let rewardsEarned = 0;
 
   await prisma.$transaction(async (tx) => {
     if (cycleIsComplete) {
@@ -404,6 +416,9 @@ export const stampCard = async (req: Request, res: Response) => {
       remainingStamps -= addNow;
       finalStampCount = updatedCount;
       finalCompleted = updatedCount >= maxPoints;
+      if (updatedCount >= maxPoints) {
+        rewardsEarned += 1;
+      }
 
       if (remainingStamps > 0 && updatedCount >= maxPoints) {
         const newCycle = await tx.customerLoyaltyCardCycle.create({
@@ -438,8 +453,14 @@ export const stampCard = async (req: Request, res: Response) => {
   let walletUpdateError: unknown = null;
 
   try {
+    const heroImageUrl = getStampHeroImageUrl(
+      card.template.id,
+      finalStampCount
+    );
     const updateRes = await walletRequest(
-      `/loyaltyObject/${encodeURIComponent(objectId)}?updateMask=loyaltyPoints`,
+      `/loyaltyObject/${encodeURIComponent(
+        objectId
+      )}?updateMask=loyaltyPoints,heroImage`,
       {
         method: "PATCH",
         body: {
@@ -447,6 +468,11 @@ export const stampCard = async (req: Request, res: Response) => {
             label: "Stamps",
             balance: {
               string: `${finalStampCount}/${maxPoints}`,
+            },
+          },
+          heroImage: {
+            sourceUri: {
+              uri: heroImageUrl,
             },
           },
         },
@@ -476,6 +502,7 @@ export const stampCard = async (req: Request, res: Response) => {
     maxPoints,
     completed: finalCompleted,
     addedStamps: parsedAddedStamps,
+    rewardsEarned,
     walletUpdated,
     walletUpdateError,
   });

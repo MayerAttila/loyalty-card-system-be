@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 import { issuerId, walletRequest } from "../../lib/googleWallet.js";
+import { generateStampHeroImages, generateStampHeroImageForCount, getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
 
 export const getCardTemplateById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -196,6 +197,35 @@ export const createCardTemplate = async (req: Request, res: Response) => {
       });
     }
     throw error;
+  }
+
+  if (
+    template &&
+    template.useStampImages &&
+    template.stampOnImageId &&
+    template.stampOffImageId
+  ) {
+    const [stampOn, stampOff] = await Promise.all([
+      prisma.image.findUnique({
+        where: { id: template.stampOnImageId },
+        select: { url: true },
+      }),
+      prisma.image.findUnique({
+        where: { id: template.stampOffImageId },
+        select: { url: true },
+      }),
+    ]);
+
+    if (stampOn?.url && stampOff?.url) {
+      generateStampHeroImages({
+        templateId: template.id,
+        maxPoints: template.maxPoints ?? 10,
+        stampOnUrl: stampOn.url,
+        stampOffUrl: stampOff.url,
+      }).catch((error) => {
+        console.warn("stamp hero image generation skipped:", error);
+      });
+    }
   }
 
   res.status(201).json(template);
@@ -457,6 +487,41 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     return res.status(404).json({ message: "template not found" });
   }
 
+  const shouldRegenerate =
+    data.maxPoints !== undefined ||
+    data.stampOnImageId !== undefined ||
+    data.stampOffImageId !== undefined ||
+    data.useStampImages !== undefined;
+
+  if (
+    shouldRegenerate &&
+    template.useStampImages &&
+    template.stampOnImageId &&
+    template.stampOffImageId
+  ) {
+    const [stampOn, stampOff] = await Promise.all([
+      prisma.image.findUnique({
+        where: { id: template.stampOnImageId },
+        select: { url: true },
+      }),
+      prisma.image.findUnique({
+        where: { id: template.stampOffImageId },
+        select: { url: true },
+      }),
+    ]);
+
+    if (stampOn?.url && stampOff?.url) {
+      generateStampHeroImages({
+        templateId: template.id,
+        maxPoints: template.maxPoints ?? 10,
+        stampOnUrl: stampOn.url,
+        stampOffUrl: stampOff.url,
+      }).catch((error) => {
+        console.warn("stamp hero image generation skipped:", error);
+      });
+    }
+  }
+
   res.json(template);
 };
 
@@ -521,10 +586,88 @@ export const deleteCardTemplate = async (req: Request, res: Response) => {
   res.json(template);
 };
 
+export const generateTemplateHeroImage = async (
+  req: Request,
+  res: Response
+) => {
+  console.log("[hero-image] endpoint hit", {
+    id: req.params.id,
+    count: req.query.count,
+  });
+  const { id } = req.params;
+  const countParam = req.query.count;
+  const maxPointsParam = req.query.maxPoints;
+  const stampRowsParam = req.query.stampRows;
+  const count = typeof countParam === "string" ? Number.parseInt(countParam, 10) : 0;
+  const maxPointsOverride =
+    typeof maxPointsParam === "string" ? Number.parseInt(maxPointsParam, 10) : undefined;
+  const stampRowsOverride =
+    typeof stampRowsParam === "string" ? Number.parseInt(stampRowsParam, 10) : undefined;
+
+  if (!id) {
+    return res.status(400).json({ message: "id is required" });
+  }
+
+  const template = await prisma.loyaltyCardTemplate.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      maxPoints: true,
+      useStampImages: true,
+      stampOnImageId: true,
+      stampOffImageId: true,
+    },
+  });
+
+  if (!template) {
+    return res.status(404).json({ message: "template not found" });
+  }
+
+  if (!template.useStampImages || !template.stampOnImageId || !template.stampOffImageId) {
+    return res.status(400).json({ message: "template has no stamp images" });
+  }
+
+  const [stampOn, stampOff] = await Promise.all([
+    prisma.image.findUnique({
+      where: { id: template.stampOnImageId },
+      select: { url: true },
+    }),
+    prisma.image.findUnique({
+      where: { id: template.stampOffImageId },
+      select: { url: true },
+    }),
+  ]);
+
+  if (!stampOn?.url || !stampOff?.url) {
+    return res.status(400).json({ message: "stamp image URLs missing" });
+  }
+
+  try {
+  await generateStampHeroImageForCount(
+    {
+      templateId: template.id,
+      maxPoints: maxPointsOverride ?? template.maxPoints ?? 10,
+      stampRows: stampRowsOverride,
+      stampOnUrl: stampOn.url,
+      stampOffUrl: stampOff.url,
+    },
+    Number.isNaN(count) ? 0 : count
+  );
+  } catch (error) {
+    console.error("[hero-image] generation failed", error);
+    return res.status(500).json({ message: "hero image generation failed" });
+  }
+
+  return res.json({
+    url: getStampHeroImageUrl(template.id, Number.isNaN(count) ? 0 : count),
+  });
+};
+
 export const cardTemplateController = {
   getCardTemplateById,
   getCardTemplatesByBusinessId,
   createCardTemplate,
   updateCardTemplate,
   deleteCardTemplate,
+  generateTemplateHeroImage,
 };
