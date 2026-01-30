@@ -1,7 +1,13 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 import { issuerId, walletRequest } from "../../lib/googleWallet.js";
-import { generateStampHeroImages, generateStampHeroImageForCount, getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
+import {
+  generateStampHeroImages,
+  generateStampHeroImageForCount,
+  getStampHeroImageUrl,
+  generateDefaultStampImages,
+  getDefaultStampImageUrl,
+} from "../../lib/stampHeroImage.js";
 import { buildLoyaltyClassPayload } from "../../lib/walletPassStructure.js";
 
 export const getCardTemplateById = async (req: Request, res: Response) => {
@@ -13,8 +19,6 @@ export const getCardTemplateById = async (req: Request, res: Response) => {
       title: true,
       maxPoints: true,
       cardColor: true,
-      accentColor: true,
-      textColor: true,
       useStampImages: true,
       stampOnImageId: true,
       stampOffImageId: true,
@@ -40,8 +44,6 @@ export const getCardTemplatesByBusinessId = async (
       title: true,
       maxPoints: true,
       cardColor: true,
-      accentColor: true,
-      textColor: true,
       useStampImages: true,
       stampOnImageId: true,
       stampOffImageId: true,
@@ -62,8 +64,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     businessId,
     maxPoints,
     cardColor,
-    accentColor,
-    textColor,
     isActive,
     useStampImages,
     stampOnImageId,
@@ -74,8 +74,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     businessId?: string;
     maxPoints?: number;
     cardColor?: string;
-    accentColor?: string;
-    textColor?: string;
     isActive?: boolean;
     useStampImages?: boolean;
     stampOnImageId?: string | null;
@@ -97,14 +95,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
 
   if (!cardColor || typeof cardColor !== "string") {
     return res.status(400).json({ message: "cardColor is required" });
-  }
-
-  if (!accentColor || typeof accentColor !== "string") {
-    return res.status(400).json({ message: "accentColor is required" });
-  }
-
-  if (!textColor || typeof textColor !== "string") {
-    return res.status(400).json({ message: "textColor is required" });
   }
 
   if (isActive !== undefined && typeof isActive !== "boolean") {
@@ -173,8 +163,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
           businessId,
           maxPoints,
           cardColor,
-          accentColor,
-          textColor,
           isActive: isActive ?? false,
           useStampImages: useStampImages ?? true,
           stampOnImageId: stampOnImageId ?? null,
@@ -185,8 +173,6 @@ export const createCardTemplate = async (req: Request, res: Response) => {
           title: true,
           maxPoints: true,
           cardColor: true,
-          accentColor: true,
-          textColor: true,
           useStampImages: true,
           stampOnImageId: true,
           stampOffImageId: true,
@@ -206,32 +192,56 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     throw error;
   }
 
-  if (
-    template &&
-    template.useStampImages &&
-    template.stampOnImageId &&
-    template.stampOffImageId
-  ) {
-    const [stampOn, stampOff] = await Promise.all([
-      prisma.image.findUnique({
-        where: { id: template.stampOnImageId },
-        select: { url: true },
-      }),
-      prisma.image.findUnique({
-        where: { id: template.stampOffImageId },
-        select: { url: true },
-      }),
-    ]);
+  if (template) {
+    if (
+      template.useStampImages &&
+      template.stampOnImageId &&
+      template.stampOffImageId
+    ) {
+      const [stampOn, stampOff] = await Promise.all([
+        prisma.image.findUnique({
+          where: { id: template.stampOnImageId },
+          select: { url: true },
+        }),
+        prisma.image.findUnique({
+          where: { id: template.stampOffImageId },
+          select: { url: true },
+        }),
+      ]);
 
-    if (stampOn?.url && stampOff?.url) {
-      generateStampHeroImages({
+      if (stampOn?.url && stampOff?.url) {
+        generateStampHeroImages({
+          templateId: template.id,
+          maxPoints: template.maxPoints ?? 10,
+          stampOnUrl: stampOn.url,
+          stampOffUrl: stampOff.url,
+        }).catch((error) => {
+          console.warn("stamp hero image generation skipped:", error);
+        });
+      }
+    } else {
+      generateDefaultStampImages({
         templateId: template.id,
         maxPoints: template.maxPoints ?? 10,
-        stampOnUrl: stampOn.url,
-        stampOffUrl: stampOff.url,
-      }).catch((error) => {
-        console.warn("stamp hero image generation skipped:", error);
-      });
+      })
+        .then(() => {
+          const safeMax = template.maxPoints ?? 10;
+          const stampOnUrls = Array.from({ length: safeMax }, (_, index) =>
+            getDefaultStampImageUrl(template.id, true, index + 1)
+          );
+          const stampOffUrls = Array.from({ length: safeMax }, (_, index) =>
+            getDefaultStampImageUrl(template.id, false, index + 1)
+          );
+          return generateStampHeroImages({
+            templateId: template.id,
+            maxPoints: safeMax,
+            stampOnUrls,
+            stampOffUrls,
+          });
+        })
+        .catch((error) => {
+          console.warn("stamp hero image generation skipped:", error);
+        });
     }
   }
 
@@ -244,8 +254,6 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     title,
     maxPoints,
     cardColor,
-    accentColor,
-    textColor,
     isActive,
     useStampImages,
     stampOnImageId,
@@ -255,8 +263,6 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     title?: string;
     maxPoints?: number;
     cardColor?: string;
-    accentColor?: string;
-    textColor?: string;
     isActive?: boolean;
     useStampImages?: boolean;
     stampOnImageId?: string | null;
@@ -268,8 +274,6 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     title?: string;
     maxPoints?: number;
     cardColor?: string;
-    accentColor?: string;
-    textColor?: string;
     isActive?: boolean;
     useStampImages?: boolean;
     stampOnImageId?: string | null;
@@ -296,20 +300,6 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
       return res.status(400).json({ message: "cardColor must be a string" });
     }
     data.cardColor = cardColor;
-  }
-
-  if (accentColor !== undefined) {
-    if (typeof accentColor !== "string") {
-      return res.status(400).json({ message: "accentColor must be a string" });
-    }
-    data.accentColor = accentColor;
-  }
-
-  if (textColor !== undefined) {
-    if (typeof textColor !== "string") {
-      return res.status(400).json({ message: "textColor must be a string" });
-    }
-    data.textColor = textColor;
   }
 
   if (isActive !== undefined) {
@@ -431,6 +421,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         accountIdLabel: "Card ID",
         accountNameLabel: "Customer",
         reviewStatus: "underReview",
+        hexBackgroundColor: data.cardColor ?? current.cardColor,
         locations:
           includeLocation !== false &&
           business.locationLat !== null &&
@@ -495,8 +486,6 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         title: true,
         maxPoints: true,
         cardColor: true,
-        accentColor: true,
-        textColor: true,
         useStampImages: true,
         stampOnImageId: true,
         stampOffImageId: true,
@@ -535,15 +524,49 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
           ]
         : [];
 
-    await walletRequest(
-      `/loyaltyClass/${encodeURIComponent(
-        template.googleWalletClassId
-      )}?updateMask=locations`,
-      {
-        method: "PATCH",
-        body: { locations },
+    const classUpdates: {
+      locations?: Array<{ latitude: number; longitude: number }>;
+      hexBackgroundColor?: string;
+      reviewStatus?: "underReview";
+    } = { locations };
+
+    if (template.cardColor) {
+      classUpdates.hexBackgroundColor = template.cardColor;
+    }
+    if (classUpdates.hexBackgroundColor) {
+      classUpdates.reviewStatus = "underReview";
+    }
+
+    if (Object.keys(classUpdates).length > 0) {
+      const updateMask = [
+        "locations",
+        ...(classUpdates.hexBackgroundColor ? ["hexBackgroundColor"] : []),
+        ...(classUpdates.reviewStatus ? ["reviewStatus"] : []),
+      ].join(",");
+      console.log("[wallet] class update payload", JSON.stringify(classUpdates, null, 2));
+      const updateRes = await walletRequest(
+        `/loyaltyClass/${encodeURIComponent(
+          template.googleWalletClassId
+        )}?updateMask=${encodeURIComponent(updateMask)}`,
+        {
+          method: "PATCH",
+          body: classUpdates,
+        }
+      );
+      if (!updateRes.ok) {
+        const errorText = await updateRes.text();
+        let errorDetails: unknown = errorText;
+        try {
+          errorDetails = JSON.parse(errorText);
+        } catch {
+          // keep raw text
+        }
+        console.warn("[wallet] class update failed", {
+          status: updateRes.status,
+          details: errorDetails,
+        });
       }
-    );
+    }
   }
 
   const shouldRegenerate =
@@ -552,32 +575,56 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     data.stampOffImageId !== undefined ||
     data.useStampImages !== undefined;
 
-  if (
-    shouldRegenerate &&
-    template.useStampImages &&
-    template.stampOnImageId &&
-    template.stampOffImageId
-  ) {
-    const [stampOn, stampOff] = await Promise.all([
-      prisma.image.findUnique({
-        where: { id: template.stampOnImageId },
-        select: { url: true },
-      }),
-      prisma.image.findUnique({
-        where: { id: template.stampOffImageId },
-        select: { url: true },
-      }),
-    ]);
+  if (shouldRegenerate) {
+    if (
+      template.useStampImages &&
+      template.stampOnImageId &&
+      template.stampOffImageId
+    ) {
+      const [stampOn, stampOff] = await Promise.all([
+        prisma.image.findUnique({
+          where: { id: template.stampOnImageId },
+          select: { url: true },
+        }),
+        prisma.image.findUnique({
+          where: { id: template.stampOffImageId },
+          select: { url: true },
+        }),
+      ]);
 
-    if (stampOn?.url && stampOff?.url) {
-      generateStampHeroImages({
+      if (stampOn?.url && stampOff?.url) {
+        generateStampHeroImages({
+          templateId: template.id,
+          maxPoints: template.maxPoints ?? 10,
+          stampOnUrl: stampOn.url,
+          stampOffUrl: stampOff.url,
+        }).catch((error) => {
+          console.warn("stamp hero image generation skipped:", error);
+        });
+      }
+    } else {
+      generateDefaultStampImages({
         templateId: template.id,
         maxPoints: template.maxPoints ?? 10,
-        stampOnUrl: stampOn.url,
-        stampOffUrl: stampOff.url,
-      }).catch((error) => {
-        console.warn("stamp hero image generation skipped:", error);
-      });
+      })
+        .then(() => {
+          const safeMax = template.maxPoints ?? 10;
+          const stampOnUrls = Array.from({ length: safeMax }, (_, index) =>
+            getDefaultStampImageUrl(template.id, true, index + 1)
+          );
+          const stampOffUrls = Array.from({ length: safeMax }, (_, index) =>
+            getDefaultStampImageUrl(template.id, false, index + 1)
+          );
+          return generateStampHeroImages({
+            templateId: template.id,
+            maxPoints: safeMax,
+            stampOnUrls,
+            stampOffUrls,
+          });
+        })
+        .catch((error) => {
+          console.warn("stamp hero image generation skipped:", error);
+        });
     }
   }
 
@@ -630,8 +677,6 @@ export const deleteCardTemplate = async (req: Request, res: Response) => {
       title: true,
       maxPoints: true,
       cardColor: true,
-      accentColor: true,
-      textColor: true,
       useStampImages: true,
       stampOnImageId: true,
       stampOffImageId: true,
@@ -682,33 +727,57 @@ export const generateTemplateHeroImage = async (
     return res.status(404).json({ message: "template not found" });
   }
 
-  if (!template.useStampImages || !template.stampOnImageId || !template.stampOffImageId) {
-    return res.status(400).json({ message: "template has no stamp images" });
-  }
+  let useDefaultStamps =
+    !template.useStampImages ||
+    !template.stampOnImageId ||
+    !template.stampOffImageId;
 
-  const [stampOn, stampOff] = await Promise.all([
-    prisma.image.findUnique({
-      where: { id: template.stampOnImageId },
-      select: { url: true },
-    }),
-    prisma.image.findUnique({
-      where: { id: template.stampOffImageId },
-      select: { url: true },
-    }),
-  ]);
+  const [stampOn, stampOff] = useDefaultStamps
+    ? [null, null]
+    : await Promise.all([
+        prisma.image.findUnique({
+          where: { id: template.stampOnImageId! },
+          select: { url: true },
+        }),
+        prisma.image.findUnique({
+          where: { id: template.stampOffImageId! },
+          select: { url: true },
+        }),
+      ]);
 
-  if (!stampOn?.url || !stampOff?.url) {
-    return res.status(400).json({ message: "stamp image URLs missing" });
+  if (!useDefaultStamps) {
+    useDefaultStamps = !stampOn?.url || !stampOff?.url;
   }
 
   try {
+  const safeMax = maxPointsOverride ?? template.maxPoints ?? 10;
+  let stampOnUrls: string[] | undefined;
+  let stampOffUrls: string[] | undefined;
+
+  if (useDefaultStamps) {
+    await generateDefaultStampImages({
+      templateId: template.id,
+      maxPoints: safeMax,
+    });
+    stampOnUrls = Array.from({ length: safeMax }, (_, index) =>
+      getDefaultStampImageUrl(template.id, true, index + 1)
+    );
+    stampOffUrls = Array.from({ length: safeMax }, (_, index) =>
+      getDefaultStampImageUrl(template.id, false, index + 1)
+    );
+  }
+
   await generateStampHeroImageForCount(
     {
       templateId: template.id,
-      maxPoints: maxPointsOverride ?? template.maxPoints ?? 10,
+      maxPoints: safeMax,
       stampRows: stampRowsOverride,
-      stampOnUrl: stampOn.url,
-      stampOffUrl: stampOff.url,
+      stampOnUrl: stampOn?.url ?? undefined,
+      stampOffUrl: stampOff?.url ?? undefined,
+      useDefaultStamps,
+      cardColor: template.cardColor,
+      stampOnUrls,
+      stampOffUrls,
     },
     Number.isNaN(count) ? 0 : count
   );

@@ -100,6 +100,7 @@ export function buildLoyaltyClassPayload(params: {
   reviewStatus: "underReview" | "approved" | "rejected";
   locations?: Array<{ latitude: number; longitude: number }>;
   websiteUrl?: string;
+  hexBackgroundColor?: string;
 }) {
   return {
     id: params.classId,
@@ -108,6 +109,9 @@ export function buildLoyaltyClassPayload(params: {
     programLogo: {
       sourceUri: { uri: params.programLogoUrl },
     },
+    ...(params.hexBackgroundColor
+      ? { hexBackgroundColor: params.hexBackgroundColor }
+      : {}),
     ...(params.locations && params.locations.length > 0
       ? { locations: params.locations }
       : {}),

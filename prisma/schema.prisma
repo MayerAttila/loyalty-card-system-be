@@ -126,8 +126,6 @@ model LoyaltyCardTemplate{
   title       String
   maxPoints   Int      @default(10)
   cardColor   String   
-  accentColor String   
-  textColor   String   
   useStampImages   Boolean  @default(true)
   stampOnImageId  String?
   stampOffImageId String?

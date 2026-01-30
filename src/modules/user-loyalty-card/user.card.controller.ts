@@ -23,8 +23,6 @@ export const getCardById = async (req: Request, res: Response) => {
           title: true,
           maxPoints: true,
           cardColor: true,
-          accentColor: true,
-          textColor: true,
           businessId: true,
         },
       },
@@ -50,8 +48,6 @@ export const getCardsByCustomerId = async (req: Request, res: Response) => {
           title: true,
           maxPoints: true,
           cardColor: true,
-          accentColor: true,
-          textColor: true,
           businessId: true,
         },
       },
@@ -183,6 +179,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
       accountIdLabel: "Card ID",
       accountNameLabel: "Customer",
       reviewStatus: "underReview",
+      hexBackgroundColor: card.template.cardColor,
       locations:
         card.template.business.locationLat !== null &&
         card.template.business.locationLng !== null
@@ -206,6 +203,7 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
         accountIdLabel: "Card ID",
         accountNameLabel: "Customer",
         reviewStatus: "underReview",
+        hexBackgroundColor: card.template.cardColor,
         locations:
           card.template.business.locationLat !== null &&
           card.template.business.locationLng !== null

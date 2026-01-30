@@ -1,17 +1,27 @@
 import { PNG } from "pngjs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { uploadImageBuffer, getPublicBaseUrl } from "./gcs.js";
 
 const HERO_WIDTH = 1032;
 const HERO_HEIGHT = 336;
 const HERO_PADDING = 28;
 const HERO_GAP = 12;
+const DEFAULT_STAMP_DIR =
+  process.env.DEFAULT_STAMP_DIR ??
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../assets/default-stamps");
+let resvgPromise: Promise<typeof import("@resvg/resvg-js")> | null = null;
 
 type StampHeroOptions = {
   templateId: string;
   maxPoints: number;
   stampRows?: number;
-  stampOnUrl: string;
-  stampOffUrl: string;
+  stampOnUrl?: string;
+  stampOffUrl?: string;
+  useDefaultStamps?: boolean;
+  stampOnUrls?: string[];
+  stampOffUrls?: string[];
 };
 
 type StampGridLayout = {
@@ -102,6 +112,8 @@ function blendPixel(dst: PNG, dx: number, dy: number, src: PNG, sx: number, sy: 
   dst.data[dIdx + 3] = Math.round(outA * 255);
 }
 
+const DEFAULT_STAMP_SIZE = 180;
+
 export function getStampHeroImagePath(templateId: string, stampCount: number) {
   const safeCount = Math.max(0, Math.floor(stampCount));
   return `templates/${templateId}/hero/stamps-${safeCount}.png`;
@@ -114,32 +126,130 @@ export function getStampHeroImageUrl(templateId: string, stampCount: number) {
   )}`;
 }
 
+export function getDefaultStampImagePath(
+  templateId: string,
+  filled: boolean,
+  index: number
+) {
+  const safeIndex = Math.max(1, Math.floor(index));
+  return `templates/${templateId}/default-stamps/${
+    filled ? "on" : "off"
+  }-${safeIndex}.png`;
+}
+
+export function getDefaultStampImageUrl(
+  templateId: string,
+  filled: boolean,
+  index: number
+) {
+  return `${getPublicBaseUrl()}/${getDefaultStampImagePath(
+    templateId,
+    filled,
+    index
+  )}`;
+}
+
+async function renderDefaultStampSvg(
+  filled: boolean,
+  index: number,
+  size = DEFAULT_STAMP_SIZE
+) {
+  if (!resvgPromise) {
+    resvgPromise = import("@resvg/resvg-js");
+  }
+  const { Resvg } = await resvgPromise;
+  const templatePath = path.join(
+    DEFAULT_STAMP_DIR,
+    filled ? "on.svg" : "off.svg"
+  );
+  const svgTemplate = await readFile(templatePath, "utf-8");
+  const svg = svgTemplate
+    .replace(/\{\{NUMBER\}\}/g, String(index))
+    .replace(/\{\{SIZE\}\}/g, String(size));
+  const resvg = new Resvg(svg, { fitTo: { mode: "width", value: size } });
+  return Buffer.from(resvg.render().asPng());
+}
+
+export async function generateDefaultStampImages(options: {
+  templateId: string;
+  maxPoints: number;
+}) {
+  const maxPoints = clampMaxPoints(options.maxPoints);
+  for (let index = 1; index <= maxPoints; index += 1) {
+    const [onBuffer, offBuffer] = await Promise.all([
+      renderDefaultStampSvg(true, index),
+      renderDefaultStampSvg(false, index),
+    ]);
+    await uploadImageBuffer({
+      buffer: onBuffer,
+      mimeType: "image/png",
+      objectName: getDefaultStampImagePath(options.templateId, true, index),
+    });
+    await uploadImageBuffer({
+      buffer: offBuffer,
+      mimeType: "image/png",
+      objectName: getDefaultStampImagePath(options.templateId, false, index),
+    });
+  }
+}
+
 async function renderStampHeroImage(options: StampHeroOptions, count: number) {
   const maxPoints = clampMaxPoints(options.maxPoints);
   const rows = clampRows(options.stampRows ?? 2);
   const layout = getLayout(maxPoints, rows);
+  const useDefaultStamps =
+    options.useDefaultStamps ||
+    !options.stampOnUrl ||
+    !options.stampOffUrl;
+  const useIndexedStamps =
+    Array.isArray(options.stampOnUrls) &&
+    Array.isArray(options.stampOffUrls) &&
+    options.stampOnUrls.length >= maxPoints &&
+    options.stampOffUrls.length >= maxPoints;
 
-  const [stampOnRaw, stampOffRaw] = await Promise.all([
-    fetchImageBuffer(options.stampOnUrl),
-    fetchImageBuffer(options.stampOffUrl),
-  ]);
+  let stampOn: PNG | null = null;
+  let stampOff: PNG | null = null;
+  let stampOnByIndex: PNG[] | null = null;
+  let stampOffByIndex: PNG[] | null = null;
 
-  ensurePng(stampOnRaw);
-  ensurePng(stampOffRaw);
+  if (useIndexedStamps) {
+    const onBuffers = await Promise.all(
+      options.stampOnUrls!.slice(0, maxPoints).map(fetchImageBuffer)
+    );
+    const offBuffers = await Promise.all(
+      options.stampOffUrls!.slice(0, maxPoints).map(fetchImageBuffer)
+    );
+    stampOnByIndex = onBuffers.map((buffer) => {
+      ensurePng(buffer);
+      return scaleNearest(PNG.sync.read(buffer), layout.stampSize, layout.stampSize);
+    });
+    stampOffByIndex = offBuffers.map((buffer) => {
+      ensurePng(buffer);
+      return scaleNearest(PNG.sync.read(buffer), layout.stampSize, layout.stampSize);
+    });
+  } else if (!useDefaultStamps) {
+    const [stampOnRaw, stampOffRaw] = await Promise.all([
+      fetchImageBuffer(options.stampOnUrl!),
+      fetchImageBuffer(options.stampOffUrl!),
+    ]);
 
-  const stampOnDecoded = PNG.sync.read(stampOnRaw);
-  const stampOffDecoded = PNG.sync.read(stampOffRaw);
+    ensurePng(stampOnRaw);
+    ensurePng(stampOffRaw);
 
-  const stampOn = scaleNearest(
-    stampOnDecoded,
-    layout.stampSize,
-    layout.stampSize
-  );
-  const stampOff = scaleNearest(
-    stampOffDecoded,
-    layout.stampSize,
-    layout.stampSize
-  );
+    const stampOnDecoded = PNG.sync.read(stampOnRaw);
+    const stampOffDecoded = PNG.sync.read(stampOffRaw);
+
+    stampOn = scaleNearest(
+      stampOnDecoded,
+      layout.stampSize,
+      layout.stampSize
+    );
+    stampOff = scaleNearest(
+      stampOffDecoded,
+      layout.stampSize,
+      layout.stampSize
+    );
+  }
 
   const positions = Array.from({ length: maxPoints }, (_, index) => {
     const row = Math.floor(index / layout.columns);
@@ -154,7 +264,25 @@ async function renderStampHeroImage(options: StampHeroOptions, count: number) {
 
   for (let index = 0; index < maxPoints; index += 1) {
     const pos = positions[index];
+    if (useIndexedStamps && stampOnByIndex && stampOffByIndex) {
+      const src = index < count ? stampOnByIndex[index] : stampOffByIndex[index];
+      for (let y = 0; y < src.height; y += 1) {
+        const dy = pos.top + y;
+        if (dy < 0 || dy >= HERO_HEIGHT) continue;
+        for (let x = 0; x < src.width; x += 1) {
+          const dx = pos.left + x;
+          if (dx < 0 || dx >= HERO_WIDTH) continue;
+          blendPixel(canvas, dx, dy, src, x, y);
+        }
+      }
+      continue;
+    }
+    if (useDefaultStamps) {
+      throw new Error("Default stamp images are missing.");
+    }
+
     const src = index < count ? stampOn : stampOff;
+    if (!src) continue;
     for (let y = 0; y < src.height; y += 1) {
       const dy = pos.top + y;
       if (dy < 0 || dy >= HERO_HEIGHT) continue;
@@ -197,6 +325,7 @@ export async function generateStampHeroImages(options: StampHeroOptions) {
       stampRows: options.stampRows ?? 2,
       stampOnUrl: options.stampOnUrl,
       stampOffUrl: options.stampOffUrl,
+      useDefaultStamps: options.useDefaultStamps ?? false,
     })
   );
   const maxPoints = clampMaxPoints(options.maxPoints);
