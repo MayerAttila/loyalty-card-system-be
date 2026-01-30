@@ -74,6 +74,7 @@ model Business {
   id          String      @id @default(uuid())
   name        String    
   address     String?   
+  website     String?
   locationPlaceId String?
   locationAddress String?
   locationLat Float?

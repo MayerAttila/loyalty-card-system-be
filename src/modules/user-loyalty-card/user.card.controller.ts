@@ -4,6 +4,12 @@ import { prisma } from "../../prisma/client.js";
 import { authConfig } from "../../auth.js";
 import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.js";
 import { getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
+import {
+  buildStampImageModule,
+  buildStampTextModules,
+  buildLoyaltyClassPayload,
+  buildLoyaltyObjectPayload,
+} from "../../lib/walletPassStructure.js";
 
 export const getCardById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -169,19 +175,49 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
       });
     }
 
+    const classPayload = buildLoyaltyClassPayload({
+      classId,
+      issuerName: card.template.business.name,
+      programName: card.template.title,
+      programLogoUrl: logo.url,
+      accountIdLabel: "Card ID",
+      accountNameLabel: "Customer",
+      reviewStatus: "underReview",
+      locations:
+        card.template.business.locationLat !== null &&
+        card.template.business.locationLng !== null
+          ? [
+              {
+                latitude: card.template.business.locationLat,
+                longitude: card.template.business.locationLng,
+              },
+            ]
+          : undefined,
+      websiteUrl: card.template.business.website ?? undefined,
+    });
+    console.log("[wallet] class payload", JSON.stringify(classPayload, null, 2));
     const createClassRes = await walletRequest("/loyaltyClass", {
       method: "POST",
-      body: {
-        id: classId,
+      body: buildLoyaltyClassPayload({
+        classId,
         issuerName: card.template.business.name,
         programName: card.template.title,
-        programLogo: {
-          sourceUri: { uri: logo.url },
-        },
+        programLogoUrl: logo.url,
         accountIdLabel: "Card ID",
         accountNameLabel: "Customer",
         reviewStatus: "underReview",
-      },
+        locations:
+          card.template.business.locationLat !== null &&
+          card.template.business.locationLng !== null
+            ? [
+                {
+                  latitude: card.template.business.locationLat,
+                  longitude: card.template.business.locationLng,
+                },
+              ]
+            : undefined,
+        websiteUrl: card.template.business.website ?? undefined,
+      }),
     });
     if (!createClassRes.ok) {
       const errorText = await createClassRes.text();
@@ -221,41 +257,23 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
   );
   if (objectRes.status === 404) {
     const stampCount = card.customerLoyaltyCardCycles[0]?.stampCount ?? 0;
-    const heroImageUrl = getStampHeroImageUrl(
-      card.template.id,
-      stampCount
-    );
+    const heroImageUrl = getStampHeroImageUrl(card.template.id, stampCount);
     const createObjectRes = await walletRequest("/loyaltyObject", {
       method: "POST",
-      body: {
-        id: objectId,
+      body: buildLoyaltyObjectPayload({
+        objectId,
         classId,
         state: "ACTIVE",
         accountId: card.id,
         accountName: card.customer.name,
-        heroImage: {
-          sourceUri: {
-            uri: heroImageUrl,
-          },
-        },
-        barcode: {
-          type: "QR_CODE",
-          value: card.id,
-          alternateText: "Loyalty card",
-        },
-        loyaltyPoints: {
-          label: "Stamps",
-          balance: {
-            string: `${stampCount}/${card.template.maxPoints}`,
-          },
-        },
-        textModulesData: [
-          {
-            header: "Customer",
-            body: card.customer.email,
-          },
-        ],
-      },
+        barcodeValue: card.id,
+        barcodeAltText: " ",
+        imageUrl: heroImageUrl,
+        stampCount,
+        maxPoints: card.template.maxPoints,
+        rewards: 0,
+        customerEmail: card.customer.email,
+      }),
     });
     if (!createObjectRes.ok) {
       const errorText = await createObjectRes.text();
@@ -453,14 +471,11 @@ export const stampCard = async (req: Request, res: Response) => {
   let walletUpdateError: unknown = null;
 
   try {
-    const heroImageUrl = getStampHeroImageUrl(
-      card.template.id,
-      finalStampCount
-    );
+    const heroImageUrl = getStampHeroImageUrl(card.template.id, finalStampCount);
     const updateRes = await walletRequest(
       `/loyaltyObject/${encodeURIComponent(
         objectId
-      )}?updateMask=loyaltyPoints,heroImage`,
+      )}?updateMask=loyaltyPoints,imageModulesData,textModulesData`,
       {
         method: "PATCH",
         body: {
@@ -470,11 +485,12 @@ export const stampCard = async (req: Request, res: Response) => {
               string: `${finalStampCount}/${maxPoints}`,
             },
           },
-          heroImage: {
-            sourceUri: {
-              uri: heroImageUrl,
-            },
-          },
+          imageModulesData: [buildStampImageModule(heroImageUrl)],
+          textModulesData: buildStampTextModules({
+            stampCount: finalStampCount,
+            maxPoints,
+            rewards: rewardsEarned,
+          }),
         },
       }
     );

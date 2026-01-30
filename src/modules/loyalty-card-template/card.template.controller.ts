@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 import { issuerId, walletRequest } from "../../lib/googleWallet.js";
 import { generateStampHeroImages, generateStampHeroImageForCount, getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
+import { buildLoyaltyClassPayload } from "../../lib/walletPassStructure.js";
 
 export const getCardTemplateById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -67,6 +68,7 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     useStampImages,
     stampOnImageId,
     stampOffImageId,
+    includeLocation,
   } = req.body as {
     title?: string;
     businessId?: string;
@@ -78,6 +80,7 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     useStampImages?: boolean;
     stampOnImageId?: string | null;
     stampOffImageId?: string | null;
+    includeLocation?: boolean;
   };
 
   if (!title || typeof title !== "string") {
@@ -112,6 +115,10 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res
       .status(400)
       .json({ message: "useStampImages must be a boolean" });
+  }
+
+  if (includeLocation !== undefined && typeof includeLocation !== "boolean") {
+    return res.status(400).json({ message: "includeLocation must be a boolean" });
   }
 
   if (
@@ -243,6 +250,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     useStampImages,
     stampOnImageId,
     stampOffImageId,
+    includeLocation,
   } = req.body as {
     title?: string;
     maxPoints?: number;
@@ -253,6 +261,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     useStampImages?: boolean;
     stampOnImageId?: string | null;
     stampOffImageId?: string | null;
+    includeLocation?: boolean;
   };
 
   const data: {
@@ -317,6 +326,10 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         .json({ message: "useStampImages must be a boolean" });
     }
     data.useStampImages = useStampImages;
+  }
+
+  if (includeLocation !== undefined && typeof includeLocation !== "boolean") {
+    return res.status(400).json({ message: "includeLocation must be a boolean" });
   }
 
   if (stampOnImageId !== undefined) {
@@ -392,7 +405,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     if (!current.googleWalletClassId) {
       const business = await prisma.business.findUnique({
         where: { id: current.businessId },
-        select: { name: true },
+        select: { name: true, locationLat: true, locationLng: true, website: true },
       });
       if (!business) {
         return res.status(404).json({ message: "business not found" });
@@ -410,19 +423,31 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
 
       const classId = `${issuerId}.${id}`;
       const programName = data.title ?? current.title;
+      const classPayload = buildLoyaltyClassPayload({
+        classId,
+        issuerName: business.name,
+        programName,
+        programLogoUrl: logo.url,
+        accountIdLabel: "Card ID",
+        accountNameLabel: "Customer",
+        reviewStatus: "underReview",
+        locations:
+          includeLocation !== false &&
+          business.locationLat !== null &&
+          business.locationLng !== null
+            ? [
+                {
+                  latitude: business.locationLat,
+                  longitude: business.locationLng,
+                },
+              ]
+            : undefined,
+        websiteUrl: business.website ?? undefined,
+      });
+      console.log("[wallet] class payload", JSON.stringify(classPayload, null, 2));
       const createClassRes = await walletRequest("/loyaltyClass", {
         method: "POST",
-        body: {
-          id: classId,
-          issuerName: business.name,
-          programName,
-          programLogo: {
-            sourceUri: { uri: logo.url },
-          },
-          accountIdLabel: "Card ID",
-          accountNameLabel: "Customer",
-          reviewStatus: "underReview",
-        },
+        body: classPayload,
       });
 
       if (!createClassRes.ok) {
@@ -477,6 +502,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         stampOffImageId: true,
         isActive: true,
         businessId: true,
+        googleWalletClassId: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -485,6 +511,39 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
 
   if (!template) {
     return res.status(404).json({ message: "template not found" });
+  }
+
+  if (template.googleWalletClassId) {
+    const business = await prisma.business.findUnique({
+      where: { id: template.businessId },
+      select: { locationLat: true, locationLng: true },
+    });
+
+    if (!business) {
+      return res.status(404).json({ message: "business not found" });
+    }
+
+    const locations =
+      includeLocation !== false &&
+      business.locationLat !== null &&
+      business.locationLng !== null
+        ? [
+            {
+              latitude: business.locationLat,
+              longitude: business.locationLng,
+            },
+          ]
+        : [];
+
+    await walletRequest(
+      `/loyaltyClass/${encodeURIComponent(
+        template.googleWalletClassId
+      )}?updateMask=locations`,
+      {
+        method: "PATCH",
+        body: { locations },
+      }
+    );
   }
 
   const shouldRegenerate =

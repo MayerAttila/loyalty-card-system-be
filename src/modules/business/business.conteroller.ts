@@ -77,6 +77,7 @@ export const getBusinessById = async (req: Request, res: Response) => {
       id: true,
       name: true,
       address: true,
+      website: true,
       locationPlaceId: true,
       locationAddress: true,
       locationLat: true,
@@ -108,13 +109,14 @@ export const getBusinessById = async (req: Request, res: Response) => {
 };
 
 export const createBusiness = async (req: Request, res: Response) => {
-  const { name, address } = req.body;
+  const { name, address, website } = req.body;
   const business = await prisma.business.create({
-    data: { name, address },
+    data: { name, address, website },
     select: {
       id: true,
       name: true,
       address: true,
+      website: true,
       createdAt: true,
       updatedAt: true,
     },
@@ -128,6 +130,7 @@ export const updateBusiness = async (req: Request, res: Response) => {
   const {
     name,
     address,
+    website,
     locationPlaceId,
     locationAddress,
     locationLat,
@@ -135,6 +138,7 @@ export const updateBusiness = async (req: Request, res: Response) => {
   } = req.body as {
     name?: string;
     address?: string | null;
+    website?: string | null;
     locationPlaceId?: string | null;
     locationAddress?: string | null;
     locationLat?: number | null;
@@ -147,6 +151,10 @@ export const updateBusiness = async (req: Request, res: Response) => {
 
   if (address !== undefined && address !== null && typeof address !== "string") {
     return res.status(400).json({ message: "address must be a string" });
+  }
+
+  if (website !== undefined && website !== null && typeof website !== "string") {
+    return res.status(400).json({ message: "website must be a string" });
   }
 
   if (
@@ -184,6 +192,7 @@ export const updateBusiness = async (req: Request, res: Response) => {
   const data: {
     name: string;
     address?: string | null;
+    website?: string | null;
     locationPlaceId?: string | null;
     locationAddress?: string | null;
     locationLat?: number | null;
@@ -191,6 +200,7 @@ export const updateBusiness = async (req: Request, res: Response) => {
   } = { name };
 
   if (address !== undefined) data.address = address;
+  if (website !== undefined) data.website = website;
   if (locationPlaceId !== undefined) data.locationPlaceId = locationPlaceId;
   if (locationAddress !== undefined) data.locationAddress = locationAddress;
   if (locationLat !== undefined) data.locationLat = locationLat;
@@ -203,6 +213,7 @@ export const updateBusiness = async (req: Request, res: Response) => {
       id: true,
       name: true,
       address: true,
+      website: true,
       locationPlaceId: true,
       locationAddress: true,
       locationLat: true,
