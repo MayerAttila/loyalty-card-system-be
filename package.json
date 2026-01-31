@@ -40,6 +40,7 @@
     "nodemailer": "^7.0.12",
     "pg": "^8.16.3",
     "pngjs": "^7.0.0",
+    "stripe": "^17.7.0",
     "zod": "^4.3.5"
   },
   "devDependencies": {
@@ -50,9 +51,9 @@
     "@types/node": "^25.0.3",
     "@types/nodemailer": "^7.0.5",
     "@types/pg": "^8.16.0",
+    "@types/pngjs": "^6.0.5",
     "prisma": "^7.2.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "@types/pngjs": "^6.0.5"
+    "typescript": "^5.9.3"
   }
 }

@@ -79,12 +79,29 @@ model Business {
   locationAddress String?
   locationLat Float?
   locationLng Float?
+  subscription Subscription?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   loyaltyCardTemplates LoyaltyCardTemplate[]
   employees    User[]
   images       Image[]
   customers    Customer[]
+}
+
+model Subscription {
+  id        String   @id @default(uuid())
+  businessId String  @unique
+  business  Business @relation(fields: [businessId], references: [id])
+  stripeCustomerId String? @unique
+  stripeSubscriptionId String? @unique
+  stripePriceId String?
+  status String?
+  currentPeriodEnd DateTime?
+  trialEndsAt DateTime?
+  cancelAtPeriodEnd Boolean?
+  interval String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 enum ImageKind {
