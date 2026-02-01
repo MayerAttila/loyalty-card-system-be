@@ -116,7 +116,7 @@ export const getBillingStatus = async (req: Request, res: Response) => {
 
   const business = await prisma.business.findUnique({
     where: { id: user.businessId },
-    select: { id: true },
+    select: { id: true, trial: true },
   });
 
   if (!business) {
@@ -127,17 +127,258 @@ export const getBillingStatus = async (req: Request, res: Response) => {
     where: { businessId: business.id },
   });
 
+  const now = Date.now();
+  const trialEndsAt = business.trial?.endsAt ?? null;
+  const isTrialActive =
+    trialEndsAt !== null && new Date(trialEndsAt).getTime() > now;
+  const rawStatus = subscription?.status ?? "none";
+  const effectiveStatus =
+    isTrialActive &&
+    rawStatus !== "active" &&
+    rawStatus !== "trialing" &&
+    rawStatus !== "canceled"
+      ? "trial"
+      : rawStatus;
+
   return res.json({
     businessId: business.id,
     stripeCustomerId: subscription?.stripeCustomerId,
     stripeSubscriptionId: subscription?.stripeSubscriptionId,
     stripePriceId: subscription?.stripePriceId,
-    status: subscription?.status ?? "none",
+    status: effectiveStatus,
     currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
-    trialEndsAt: subscription?.trialEndsAt ?? null,
+    trialEndsAt: subscription?.trialEndsAt ?? trialEndsAt,
     cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
     interval: subscription?.interval ?? null,
   });
+};
+
+export const startTrialNoCard = async (req: Request, res: Response) => {
+  const user = await requireBillingSession(req, res);
+  if (!user) return;
+
+  const business = await prisma.business.findUnique({
+    where: { id: user.businessId },
+    select: {
+      id: true,
+      trial: true,
+      subscription: { select: { status: true } },
+    },
+  });
+  if (!business) {
+    return res.status(404).json({ message: "business not found" });
+  }
+
+  if (business.trial?.consumedAt) {
+    return res.status(409).json({ message: "trial already used" });
+  }
+
+  if (business.subscription?.status && business.subscription.status !== "canceled") {
+    return res.status(409).json({ message: "subscription already exists" });
+  }
+
+  const now = new Date();
+  const endsAt = new Date(
+    now.getTime() + (Number.isNaN(TRIAL_DAYS) ? 30 : TRIAL_DAYS) * 86400000
+  );
+
+  await prisma.trial.create({
+    data: {
+      businessId: business.id,
+      startedAt: now,
+      endsAt,
+      consumedAt: now,
+    },
+  });
+
+  return res.json({ status: "trial", trialEndsAt: endsAt });
+};
+
+export const createSubscriptionIntent = async (req: Request, res: Response) => {
+  const user = await requireBillingSession(req, res);
+  if (!user) return;
+
+  const { priceId, withTrial } = req.body as {
+    priceId?: AllowedPriceId;
+    withTrial?: boolean;
+  };
+
+  const allowedPrices = [MONTHLY_PRICE_ID, ANNUAL_PRICE_ID].filter(
+    Boolean
+  ) as string[];
+  if (!priceId || !allowedPrices.includes(priceId)) {
+    return res.status(400).json({ message: "invalid priceId" });
+  }
+
+  const business = await prisma.business.findUnique({
+    where: { id: user.businessId },
+    select: {
+      id: true,
+      name: true,
+      subscription: {
+        select: { stripeCustomerId: true },
+      },
+    },
+  });
+  if (!business) {
+    return res.status(404).json({ message: "business not found" });
+  }
+
+  let stripeCustomerId = business.subscription?.stripeCustomerId ?? null;
+  if (!stripeCustomerId) {
+    const customer = await stripe.customers.create({
+      name: business.name,
+      email: user.email ?? undefined,
+      metadata: { businessId: business.id },
+    });
+    stripeCustomerId = customer.id;
+    await prisma.subscription.upsert({
+      where: { businessId: business.id },
+      create: {
+        businessId: business.id,
+        stripeCustomerId,
+      },
+      update: { stripeCustomerId },
+    });
+  }
+
+  const subscription = await stripe.subscriptions.create({
+    customer: stripeCustomerId,
+    items: [{ price: priceId }],
+    payment_behavior: "default_incomplete",
+    payment_settings: {
+      save_default_payment_method: "on_subscription",
+      payment_method_types: ["card", "revolut_pay"],
+    },
+    ...(withTrial
+      ? { trial_period_days: Number.isNaN(TRIAL_DAYS) ? 30 : TRIAL_DAYS }
+      : {}),
+    expand: ["latest_invoice.payment_intent"],
+    metadata: { businessId: business.id },
+  });
+
+  await updateBusinessFromSubscription(subscription);
+
+  const paymentIntent = subscription.latest_invoice
+    ? (subscription.latest_invoice as Stripe.Invoice).payment_intent
+    : null;
+
+  const clientSecret =
+    paymentIntent && typeof paymentIntent !== "string"
+      ? paymentIntent.client_secret
+      : null;
+
+  if (!clientSecret) {
+    return res.status(500).json({ message: "payment intent missing" });
+  }
+
+  return res.json({
+    clientSecret,
+    subscriptionId: subscription.id,
+  });
+};
+
+export const cancelSubscription = async (req: Request, res: Response) => {
+  const user = await requireBillingSession(req, res);
+  if (!user) return;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { businessId: user.businessId },
+    select: {
+      stripeSubscriptionId: true,
+      status: true,
+      cancelAtPeriodEnd: true,
+    },
+  });
+
+  if (!subscription?.stripeSubscriptionId) {
+    return res.status(404).json({ message: "no active subscription" });
+  }
+
+  if (subscription.cancelAtPeriodEnd) {
+    return res.status(409).json({ message: "subscription already canceling" });
+  }
+
+  const updated = await stripe.subscriptions.update(
+    subscription.stripeSubscriptionId,
+    {
+      cancel_at_period_end: true,
+    }
+  );
+
+  await updateBusinessFromSubscription(updated);
+
+  return res.json({ status: updated.status, cancelAtPeriodEnd: true });
+};
+
+export const cancelSubscriptionNow = async (req: Request, res: Response) => {
+  const user = await requireBillingSession(req, res);
+  if (!user) return;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { businessId: user.businessId },
+    select: { stripeSubscriptionId: true },
+  });
+
+  if (!subscription?.stripeSubscriptionId) {
+    return res.status(404).json({ message: "no active subscription" });
+  }
+
+  const canceled = await stripe.subscriptions.cancel(
+    subscription.stripeSubscriptionId
+  );
+
+  await updateBusinessFromSubscription(canceled);
+
+  return res.json({ status: canceled.status });
+};
+
+export const resetSubscriptionForTesting = async (req: Request, res: Response) => {
+  const user = await requireBillingSession(req, res);
+  if (!user) return;
+
+  const subscription = await prisma.subscription.findUnique({
+    where: { businessId: user.businessId },
+    select: {
+      stripeSubscriptionId: true,
+      stripeCustomerId: true,
+    },
+  });
+
+  if (!subscription) {
+    await prisma.trial.deleteMany({
+      where: { businessId: user.businessId },
+    });
+    return res.json({ status: "reset" });
+  }
+
+  if (subscription.stripeSubscriptionId) {
+    try {
+      await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
+    } catch (error) {
+      console.error("[billing reset] failed to cancel subscription", error);
+    }
+  }
+
+  if (subscription.stripeCustomerId) {
+    try {
+      await stripe.customers.del(subscription.stripeCustomerId);
+    } catch (error) {
+      console.error("[billing reset] failed to delete customer", error);
+    }
+  }
+
+  if (subscription) {
+    await prisma.subscription.delete({
+      where: { businessId: user.businessId },
+    });
+  }
+
+  await prisma.trial.deleteMany({
+    where: { businessId: user.businessId },
+  });
+
+  return res.json({ status: "reset" });
 };
 
 export const createCheckoutSession = async (req: Request, res: Response) => {
@@ -320,6 +561,11 @@ export const handleWebhook = async (req: Request, res: Response) => {
 
 export const billingController = {
   getBillingStatus,
+  startTrialNoCard,
+  createSubscriptionIntent,
+  cancelSubscription,
+  cancelSubscriptionNow,
+  resetSubscriptionForTesting,
   createCheckoutSession,
   createPortalSession,
   handleWebhook,
