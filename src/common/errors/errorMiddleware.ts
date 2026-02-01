@@ -1,13 +1,11 @@
 import type { ErrorRequestHandler } from "express";
 import { MulterError } from "multer";
-import { ApiError } from "./apiError";
+import { ApiError } from "./ApiError.js";
 
 export const errorMiddleware: ErrorRequestHandler = (err, req, res, next) => {
   if (err instanceof MulterError) {
     const message =
-      err.code === "LIMIT_FILE_SIZE"
-        ? "File too large"
-        : "Invalid file upload";
+      err.code === "LIMIT_FILE_SIZE" ? "File too large" : "Invalid file upload";
     return res.status(400).json({ message });
   }
 

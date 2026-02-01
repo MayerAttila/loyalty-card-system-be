@@ -1,6 +1,6 @@
 import { Router } from "express";
 import multer from "multer";
-import { businessController } from "./business.conteroller.js";
+import { businessController } from "./business.controller.js";
 
 export const businessRouter = Router();
 
