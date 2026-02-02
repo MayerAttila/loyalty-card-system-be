@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { uploadImageBuffer, getPublicBaseUrl } from "./gcs.js";
 
 const HERO_WIDTH = 1032;
-const HERO_HEIGHT = 336;
+const HERO_HEIGHT = 420;
 const HERO_PADDING = 28;
 const HERO_GAP = 12;
 const DEFAULT_STAMP_DIR =
@@ -28,6 +28,8 @@ type StampGridLayout = {
   columns: number;
   rows: number;
   stampSize: number;
+  gapX: number;
+  gapY: number;
   startX: number;
   startY: number;
 };
@@ -37,20 +39,33 @@ const clampRows = (value: number) => Math.min(Math.max(value, 1), 2);
 
 function getLayout(maxPoints: number, rows: number): StampGridLayout {
   const columns = Math.ceil(maxPoints / rows);
-  const availableWidth =
-    HERO_WIDTH - HERO_PADDING * 2 - HERO_GAP * (columns - 1);
-  const availableHeight =
-    HERO_HEIGHT - HERO_PADDING * 2 - HERO_GAP * (rows - 1);
-  const stampSize = Math.floor(
-    Math.min(availableWidth / columns, availableHeight / rows)
-  );
+  const availableWidth = HERO_WIDTH - HERO_PADDING * 2;
+  const availableHeight = HERO_HEIGHT - HERO_PADDING * 2;
+  const minGap = HERO_GAP;
 
-  const totalWidth = stampSize * columns + HERO_GAP * (columns - 1);
-  const totalHeight = stampSize * rows + HERO_GAP * (rows - 1);
-  const startX = Math.floor((HERO_WIDTH - totalWidth) / 2);
-  const startY = Math.floor((HERO_HEIGHT - totalHeight) / 2);
+  const maxStampWidth =
+    columns > 1
+      ? (availableWidth - minGap * (columns - 1)) / columns
+      : availableWidth;
+  const maxStampHeight =
+    rows > 1
+      ? (availableHeight - minGap * (rows - 1)) / rows
+      : availableHeight;
+  const stampSize = Math.max(1, Math.floor(Math.min(maxStampWidth, maxStampHeight)));
 
-  return { columns, rows, stampSize, startX, startY };
+  const gapX =
+    columns > 1
+      ? Math.max(0, Math.floor((availableWidth - stampSize * columns) / (columns - 1)))
+      : 0;
+  const gapY =
+    rows > 1
+      ? Math.max(0, Math.floor((availableHeight - stampSize * rows) / (rows - 1)))
+      : 0;
+
+  const startX = HERO_PADDING;
+  const startY = HERO_PADDING;
+
+  return { columns, rows, stampSize, gapX, gapY, startX, startY };
 }
 
 function ensurePng(buffer: Buffer) {
@@ -114,6 +129,17 @@ function blendPixel(dst: PNG, dx: number, dy: number, src: PNG, sx: number, sy: 
 
 const DEFAULT_STAMP_SIZE = 180;
 
+function getContrastStampColor(hexColor?: string) {
+  if (!hexColor) return "#ffffff";
+  const normalized = hexColor.trim().replace("#", "");
+  if (normalized.length !== 6) return "#ffffff";
+  const r = parseInt(normalized.slice(0, 2), 16);
+  const g = parseInt(normalized.slice(2, 4), 16);
+  const b = parseInt(normalized.slice(4, 6), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.6 ? "#0f172a" : "#ffffff";
+}
+
 export function getStampHeroImagePath(templateId: string, stampCount: number) {
   const safeCount = Math.max(0, Math.floor(stampCount));
   return `templates/${templateId}/hero/stamps-${safeCount}.png`;
@@ -152,7 +178,8 @@ export function getDefaultStampImageUrl(
 async function renderDefaultStampSvg(
   filled: boolean,
   index: number,
-  size = DEFAULT_STAMP_SIZE
+  size = DEFAULT_STAMP_SIZE,
+  color = "#ffffff"
 ) {
   if (!resvgPromise) {
     resvgPromise = import("@resvg/resvg-js");
@@ -165,7 +192,8 @@ async function renderDefaultStampSvg(
   const svgTemplate = await readFile(templatePath, "utf-8");
   const svg = svgTemplate
     .replace(/\{\{NUMBER\}\}/g, String(index))
-    .replace(/\{\{SIZE\}\}/g, String(size));
+    .replace(/\{\{SIZE\}\}/g, String(size))
+    .replace(/\{\{COLOR\}\}/g, color);
   const resvg = new Resvg(svg, { fitTo: { mode: "width", value: size } });
   return Buffer.from(resvg.render().asPng());
 }
@@ -173,12 +201,14 @@ async function renderDefaultStampSvg(
 export async function generateDefaultStampImages(options: {
   templateId: string;
   maxPoints: number;
+  cardColor?: string;
 }) {
   const maxPoints = clampMaxPoints(options.maxPoints);
+  const color = getContrastStampColor(options.cardColor);
   for (let index = 1; index <= maxPoints; index += 1) {
     const [onBuffer, offBuffer] = await Promise.all([
-      renderDefaultStampSvg(true, index),
-      renderDefaultStampSvg(false, index),
+      renderDefaultStampSvg(true, index, DEFAULT_STAMP_SIZE, color),
+      renderDefaultStampSvg(false, index, DEFAULT_STAMP_SIZE, color),
     ]);
     await uploadImageBuffer({
       buffer: onBuffer,
@@ -255,8 +285,8 @@ async function renderStampHeroImage(options: StampHeroOptions, count: number) {
     const row = Math.floor(index / layout.columns);
     const col = index % layout.columns;
     return {
-      left: layout.startX + col * (layout.stampSize + HERO_GAP),
-      top: layout.startY + row * (layout.stampSize + HERO_GAP),
+      left: layout.startX + col * (layout.stampSize + layout.gapX),
+      top: layout.startY + row * (layout.stampSize + layout.gapY),
     };
   });
 

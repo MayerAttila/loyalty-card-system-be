@@ -109,8 +109,16 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "text1 must be a string" });
   }
 
+  if (typeof text1 === "string" && !text1.trim()) {
+    return res.status(400).json({ message: "text1 is required" });
+  }
+
   if (text2 !== undefined && text2 !== null && typeof text2 !== "string") {
     return res.status(400).json({ message: "text2 must be a string" });
+  }
+
+  if (typeof text2 === "string" && !text2.trim()) {
+    return res.status(400).json({ message: "text2 is required" });
   }
 
   if (isActive !== undefined && typeof isActive !== "boolean") {
@@ -243,6 +251,7 @@ export const createCardTemplate = async (req: Request, res: Response) => {
       generateDefaultStampImages({
         templateId: createdTemplate.id,
         maxPoints: createdTemplate.maxPoints ?? 10,
+        cardColor: createdTemplate.cardColor ?? undefined,
       })
         .then(() => {
           const safeMax = createdTemplate.maxPoints ?? 10;
@@ -318,12 +327,18 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
     if (text1 !== null && typeof text1 !== "string") {
       return res.status(400).json({ message: "text1 must be a string" });
     }
+    if (typeof text1 === "string" && !text1.trim()) {
+      return res.status(400).json({ message: "text1 is required" });
+    }
     data.text1 = text1;
   }
 
   if (text2 !== undefined) {
     if (text2 !== null && typeof text2 !== "string") {
       return res.status(400).json({ message: "text2 must be a string" });
+    }
+    if (typeof text2 === "string" && !text2.trim()) {
+      return res.status(400).json({ message: "text2 is required" });
     }
     data.text2 = text2;
   }
@@ -655,6 +670,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
       generateDefaultStampImages({
         templateId: updatedTemplate.id,
         maxPoints: updatedTemplate.maxPoints ?? 10,
+        cardColor: updatedTemplate.cardColor ?? undefined,
       })
         .then(() => {
           const safeMax = updatedTemplate.maxPoints ?? 10;
@@ -811,6 +827,7 @@ export const generateTemplateHeroImage = async (
     await generateDefaultStampImages({
       templateId: template.id,
       maxPoints: safeMax,
+      cardColor: template.cardColor ?? undefined,
     });
     stampOnUrls = Array.from({ length: safeMax }, (_, index) =>
       getDefaultStampImageUrl(template.id, true, index + 1)
