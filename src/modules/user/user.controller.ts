@@ -196,7 +196,7 @@ export const sendEmployeeInvite = async (req: Request, res: Response) => {
     return res.status(500).json({ message: "APP_BASE_URL is not configured" });
   }
 
-  const inviteUrl = `${baseUrl.replace(/\/$/, "")}/register?role=employee&invite=1&businessId=${encodeURIComponent(
+  const inviteUrl = `${baseUrl.replace(/\/$/, "")}/join-business?invite=1&businessId=${encodeURIComponent(
     businessId
   )}`;
 

@@ -15,7 +15,7 @@ export const buildEmployeeInviteEmail = ({
         <p style="margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748b;">Employee invite</p>
         <h2 style="margin: 0 0 12px; font-size: 22px; color: #d32752;">Join ${businessName}</h2>
         <p style="margin: 0 0 22px;">You've been invited to join <strong>${businessName}</strong> as an employee.</p>
-        <a href="${inviteUrl}" style="display: inline-block; background-color: #d32752; color: #f8fafc; text-decoration: none; padding: 12px 20px; border-radius: 999px; font-weight: 600; font-size: 14px;">Complete your registration</a>
+        <a href="${inviteUrl}" style="display: inline-block; background-color: #d32752; color: #f8fafc; text-decoration: none; padding: 12px 20px; border-radius: 999px; font-weight: 600; font-size: 14px;">Join business</a>
         <p style="margin: 22px 0 0; font-size: 12px; color: #64748b;">If you did not expect this invite, you can ignore this email.</p>
         <p style="margin: 8px 0 0; font-size: 12px; color: #94a3b8;">Invite link: ${inviteUrl}</p>
       </div>
