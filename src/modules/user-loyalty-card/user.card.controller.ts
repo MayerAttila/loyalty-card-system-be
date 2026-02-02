@@ -20,7 +20,7 @@ export const getCardById = async (req: Request, res: Response) => {
       template: {
         select: {
           id: true,
-          title: true,
+          template: true,
           maxPoints: true,
           cardColor: true,
           businessId: true,
@@ -45,7 +45,7 @@ export const getCardsByCustomerId = async (req: Request, res: Response) => {
       template: {
         select: {
           id: true,
-          title: true,
+          template: true,
           maxPoints: true,
           cardColor: true,
           businessId: true,
@@ -138,7 +138,15 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     include: {
       customer: true,
       template: {
-        include: {
+        select: {
+          id: true,
+          template: true,
+          text1: true,
+          text2: true,
+          maxPoints: true,
+          cardColor: true,
+          businessId: true,
+          googleWalletClassId: true,
           business: true,
         },
       },
@@ -171,10 +179,12 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
       });
     }
 
+    const resolvedIssuerName = card.template.text1 ?? "";
+    const resolvedProgramName = card.template.text2 ?? "";
     const classPayload = buildLoyaltyClassPayload({
       classId,
-      issuerName: card.template.business.name,
-      programName: card.template.title,
+      issuerName: resolvedIssuerName,
+      programName: resolvedProgramName,
       programLogoUrl: logo.url,
       accountIdLabel: "Card ID",
       accountNameLabel: "Customer",
@@ -197,8 +207,8 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
       method: "POST",
       body: buildLoyaltyClassPayload({
         classId,
-        issuerName: card.template.business.name,
-        programName: card.template.title,
+        issuerName: resolvedIssuerName,
+        programName: resolvedProgramName,
         programLogoUrl: logo.url,
         accountIdLabel: "Card ID",
         accountNameLabel: "Customer",
@@ -360,7 +370,7 @@ export const stampCard = async (req: Request, res: Response) => {
           id: true,
           businessId: true,
           maxPoints: true,
-          title: true,
+          template: true,
         },
       },
       customer: {
@@ -511,7 +521,7 @@ export const stampCard = async (req: Request, res: Response) => {
     cardId: card.id,
     customerName: card.customer.name,
     customerEmail: card.customer.email,
-    cardTitle: card.template.title,
+    cardTitle: card.template.template,
     stampCount: finalStampCount,
     maxPoints,
     completed: finalCompleted,

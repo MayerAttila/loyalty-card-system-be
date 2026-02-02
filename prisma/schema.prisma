@@ -150,7 +150,9 @@ model Customer {
 
 model LoyaltyCardTemplate{
   id          String   @id @default(uuid())
-  title       String
+  template    String
+  text1       String?
+  text2       String?
   maxPoints   Int      @default(10)
   cardColor   String   
   useStampImages   Boolean  @default(true)
@@ -164,7 +166,7 @@ model LoyaltyCardTemplate{
   business    Business @relation(fields: [businessId], references: [id])
   customerLoyaltyCards CustomerLoyaltyCard[]
 
-  @@unique([businessId, title])
+  @@unique([businessId, template])
 }
 
 model CustomerLoyaltyCard {

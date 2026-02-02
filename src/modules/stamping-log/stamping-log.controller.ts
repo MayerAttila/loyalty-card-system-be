@@ -69,7 +69,7 @@ export const getStampingLogsForBusiness = async (
               template: {
                 select: {
                   id: true,
-                  title: true,
+                  template: true,
                   maxPoints: true,
                 },
               },

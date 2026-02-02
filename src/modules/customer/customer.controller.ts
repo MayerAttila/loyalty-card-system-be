@@ -50,7 +50,7 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
           createdAt: true,
           template: {
             select: {
-              title: true,
+              template: true,
               maxPoints: true,
             },
           },
@@ -86,7 +86,7 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
         const maxPoints = card.template?.maxPoints ?? null;
         const cycleNumber = cycle?.cycleNumber ?? 1;
         return {
-          templateTitle: card.template?.title ?? null,
+          templateTitle: card.template?.template ?? null,
           stampCount: cycle?.stampCount ?? 0,
           maxPoints,
           rewardsEarned: Math.max(cycleNumber - 1, 0),
