@@ -25,7 +25,7 @@ function normalizeRedirectUrl(url: string | undefined, baseUrl: string) {
   }
 }
 
-async function requireBillingSession(req: Request, res: Response) {
+async function requireSubscriptionSession(req: Request, res: Response) {
   const session = await getSession(req, authConfig);
   if (!session?.user) {
     res.status(401).json({ message: "unauthorized" });
@@ -110,8 +110,8 @@ async function updateBusinessFromSubscription(
   }
 }
 
-export const getBillingStatus = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+export const getSubscriptionStatus = async (req: Request, res: Response) => {
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const business = await prisma.business.findUnique({
@@ -154,7 +154,7 @@ export const getBillingStatus = async (req: Request, res: Response) => {
 };
 
 export const startTrialNoCard = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const business = await prisma.business.findUnique({
@@ -173,7 +173,15 @@ export const startTrialNoCard = async (req: Request, res: Response) => {
     return res.status(409).json({ message: "trial already used" });
   }
 
-  if (business.subscription?.status && business.subscription.status !== "canceled") {
+  const nonBlockingStatuses = new Set([
+    "canceled",
+    "incomplete",
+    "incomplete_expired",
+  ]);
+  if (
+    business.subscription?.status &&
+    !nonBlockingStatuses.has(business.subscription.status)
+  ) {
     return res.status(409).json({ message: "subscription already exists" });
   }
 
@@ -195,7 +203,7 @@ export const startTrialNoCard = async (req: Request, res: Response) => {
 };
 
 export const createSubscriptionIntent = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const { priceId, withTrial } = req.body as {
@@ -279,7 +287,7 @@ export const createSubscriptionIntent = async (req: Request, res: Response) => {
 };
 
 export const cancelSubscription = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const subscription = await prisma.subscription.findUnique({
@@ -312,7 +320,7 @@ export const cancelSubscription = async (req: Request, res: Response) => {
 };
 
 export const cancelSubscriptionNow = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const subscription = await prisma.subscription.findUnique({
@@ -334,7 +342,7 @@ export const cancelSubscriptionNow = async (req: Request, res: Response) => {
 };
 
 export const resetSubscriptionForTesting = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const subscription = await prisma.subscription.findUnique({
@@ -356,7 +364,7 @@ export const resetSubscriptionForTesting = async (req: Request, res: Response) =
     try {
       await stripe.subscriptions.cancel(subscription.stripeSubscriptionId);
     } catch (error) {
-      console.error("[billing reset] failed to cancel subscription", error);
+      console.error("[subscription reset] failed to cancel subscription", error);
     }
   }
 
@@ -364,7 +372,7 @@ export const resetSubscriptionForTesting = async (req: Request, res: Response) =
     try {
       await stripe.customers.del(subscription.stripeCustomerId);
     } catch (error) {
-      console.error("[billing reset] failed to delete customer", error);
+      console.error("[subscription reset] failed to delete customer", error);
     }
   }
 
@@ -382,7 +390,7 @@ export const resetSubscriptionForTesting = async (req: Request, res: Response) =
 };
 
 export const createCheckoutSession = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const { priceId, successUrl, cancelUrl, withTrial, requireCard } = req.body as {
@@ -468,7 +476,7 @@ export const createCheckoutSession = async (req: Request, res: Response) => {
 };
 
 export const createPortalSession = async (req: Request, res: Response) => {
-  const user = await requireBillingSession(req, res);
+  const user = await requireSubscriptionSession(req, res);
   if (!user) return;
 
   const { returnUrl } = req.body as { returnUrl?: string };
@@ -485,7 +493,7 @@ export const createPortalSession = async (req: Request, res: Response) => {
   });
 
   if (!subscription?.stripeCustomerId) {
-    return res.status(400).json({ message: "no billing customer found" });
+    return res.status(400).json({ message: "no subscription customer found" });
   }
 
   const session = await stripe.billingPortal.sessions.create({
@@ -559,8 +567,8 @@ export const handleWebhook = async (req: Request, res: Response) => {
   return res.json({ received: true });
 };
 
-export const billingController = {
-  getBillingStatus,
+export const subscriptionController = {
+  getSubscriptionStatus,
   startTrialNoCard,
   createSubscriptionIntent,
   cancelSubscription,

@@ -9,8 +9,8 @@ import { userRoutes } from "./modules/user/user.router.js";
 import { cardTemplateRouter } from "./modules/loyalty-card-template/card.template.router.js";
 import { userCardRouter } from "./modules/user-loyalty-card/user.card.router.js";
 import { stampingLogRouter } from "./modules/stamping-log/stamping-log.router.js";
-import { billingRouter } from "./modules/billing/billing.router.js";
-import { billingController } from "./modules/billing/billing.controller.js";
+import { subscriptionRouter } from "./modules/subscription/subscription.router.js";
+import { subscriptionController } from "./modules/subscription/subscription.controller.js";
 import { env } from "./config/env.js";
 
 const corsOrigins = env.CORS_ORIGIN.split(",")
@@ -29,9 +29,9 @@ app.use(
 );
 
 app.post(
-  "/billing/webhook",
+  "/subscription/webhook",
   express.raw({ type: "application/json" }),
-  billingController.handleWebhook
+  subscriptionController.handleWebhook
 );
 
 app.use(express.json());
@@ -45,6 +45,6 @@ app.use("/user", userRoutes);
 app.use("/card-template", cardTemplateRouter);
 app.use("/user-loyalty-card", userCardRouter);
 app.use("/stamping-log", stampingLogRouter);
-app.use("/billing", billingRouter);
+app.use("/subscription", subscriptionRouter);
 
 app.use(errorMiddleware);
