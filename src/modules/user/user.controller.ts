@@ -41,22 +41,67 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
 };
 
 export const createUser = async (req: Request, res: Response) => {
-  const { name, email, businessId, password, role, approved } = req.body;
-  const hashed = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({
-    data: { name, email, businessId, password: hashed, role, approved },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      approved: true,
-      createdAt: true,
-      updatedAt: true,
-      role: true,
-    },
-  });
+  const { name, email, businessId, password, role, approved } = req.body as {
+    name?: string;
+    email?: string;
+    businessId?: string;
+    password?: string;
+    role?: UserRole;
+    approved?: boolean;
+  };
 
-  res.status(201).json(user);
+  if (!name || typeof name !== "string" || !name.trim()) {
+    return res.status(400).json({ message: "name is required" });
+  }
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({ message: "email is required" });
+  }
+  if (!/.+@.+\..+/.test(email)) {
+    return res.status(400).json({ message: "email is invalid" });
+  }
+  if (!businessId || typeof businessId !== "string") {
+    return res.status(400).json({ message: "businessId is required" });
+  }
+  if (!password || typeof password !== "string") {
+    return res.status(400).json({ message: "password is required" });
+  }
+
+  const allowedRoles: UserRole[] = ["OWNER", "ADMIN", "STAFF"];
+  const nextRole = role && allowedRoles.includes(role) ? role : undefined;
+
+  const hashed = await bcrypt.hash(password, 10);
+  try {
+    const user = await prisma.user.create({
+      data: {
+        name: name.trim(),
+        email: email.trim(),
+        businessId,
+        password: hashed,
+        ...(nextRole ? { role: nextRole } : {}),
+        ...(typeof approved === "boolean" ? { approved } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        approved: true,
+        createdAt: true,
+        updatedAt: true,
+        role: true,
+      },
+    });
+
+    return res.status(201).json(user);
+  } catch (error) {
+    const code = (error as { code?: string }).code;
+    if (code === "P2002") {
+      return res.status(409).json({ message: "email already in use" });
+    }
+    if (code === "P2003") {
+      return res.status(400).json({ message: "invalid businessId" });
+    }
+    throw error;
+  }
 };
 
 export const updateUserApproval = async (req: Request, res: Response) => {
