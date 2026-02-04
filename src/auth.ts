@@ -5,6 +5,11 @@ import { z } from "zod";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma/client.js";
 
+const authUrl = process.env.AUTH_URL;
+const parsedAuthUrl = authUrl ? new URL(authUrl) : null;
+const cookieDomain = parsedAuthUrl?.hostname;
+const isSecureCookie = parsedAuthUrl?.protocol === "https:";
+
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
@@ -16,6 +21,40 @@ export const authConfig: ExpressAuthConfig = {
   session: {
     strategy: "jwt",
   },
+  ...(cookieDomain
+    ? {
+        cookies: {
+          sessionToken: {
+            name: "__Secure-authjs.session-token",
+            options: {
+              httpOnly: true,
+              sameSite: "lax",
+              path: "/",
+              secure: isSecureCookie,
+              domain: cookieDomain,
+            },
+          },
+          csrfToken: {
+            name: "__Host-authjs.csrf-token",
+            options: {
+              httpOnly: true,
+              sameSite: "lax",
+              path: "/",
+              secure: isSecureCookie,
+            },
+          },
+          callbackUrl: {
+            name: "__Secure-authjs.callback-url",
+            options: {
+              sameSite: "lax",
+              path: "/",
+              secure: isSecureCookie,
+              domain: cookieDomain,
+            },
+          },
+        },
+      }
+    : {}),
   providers: [
     Credentials({
       name: "Credentials",
