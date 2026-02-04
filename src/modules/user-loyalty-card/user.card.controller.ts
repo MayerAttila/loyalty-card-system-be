@@ -17,6 +17,9 @@ export const getCardById = async (req: Request, res: Response) => {
   const card = await prisma.customerLoyaltyCard.findUnique({
     where: { id },
     include: {
+      customer: {
+        select: { name: true, email: true },
+      },
       template: {
         select: {
           id: true,
