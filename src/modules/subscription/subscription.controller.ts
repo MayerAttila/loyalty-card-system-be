@@ -483,15 +483,57 @@ export const createPortalSession = async (req: Request, res: Response) => {
 
   const subscription = await prisma.subscription.findUnique({
     where: { businessId: user.businessId },
-    select: { stripeCustomerId: true },
+    select: {
+      stripeCustomerId: true,
+      stripeSubscriptionId: true,
+    },
   });
 
-  if (!subscription?.stripeCustomerId) {
+  const resolveCustomerFromSubscription = async () => {
+    if (!subscription?.stripeSubscriptionId) return null;
+    const stripeSubscription = await stripe.subscriptions.retrieve(
+      subscription.stripeSubscriptionId
+    );
+    const customerId =
+      typeof stripeSubscription.customer === "string"
+        ? stripeSubscription.customer
+        : stripeSubscription.customer?.id;
+    if (!customerId) return null;
+    await prisma.subscription.update({
+      where: { businessId: user.businessId },
+      data: { stripeCustomerId: customerId },
+    });
+    return customerId;
+  };
+
+  let customerId = subscription?.stripeCustomerId ?? null;
+
+  if (customerId) {
+    try {
+      const customer = await stripe.customers.retrieve(customerId);
+      if (typeof customer !== "string" && "deleted" in customer && customer.deleted) {
+        customerId = null;
+      }
+    } catch (error) {
+      const maybeStripeError = error as { code?: string };
+      if (maybeStripeError?.code === "resource_missing") {
+        customerId = null;
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  if (!customerId) {
+    customerId = await resolveCustomerFromSubscription();
+  }
+
+  if (!customerId) {
     return res.status(400).json({ message: "no subscription customer found" });
   }
 
   const session = await stripe.billingPortal.sessions.create({
-    customer: subscription.stripeCustomerId,
+    customer: customerId,
     return_url: resolvedReturn,
   });
 
