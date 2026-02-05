@@ -16,15 +16,10 @@ export const getStampingLogsForBusiness = async (
     id?: string;
     businessId?: string;
     role?: string;
-    approved?: boolean;
   };
 
   if (!user.businessId) {
     return res.status(403).json({ message: "invalid session" });
-  }
-
-  if (user.approved === false) {
-    return res.status(403).json({ message: "user not approved" });
   }
 
   if (user.role !== "OWNER" && user.role !== "ADMIN") {

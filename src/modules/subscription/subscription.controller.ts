@@ -37,16 +37,10 @@ async function requireSubscriptionSession(req: Request, res: Response) {
     email?: string;
     businessId?: string;
     role?: string;
-    approved?: boolean;
   };
 
   if (!user.businessId) {
     res.status(403).json({ message: "invalid session" });
-    return null;
-  }
-
-  if (user.approved === false) {
-    res.status(403).json({ message: "user not approved" });
     return null;
   }
 

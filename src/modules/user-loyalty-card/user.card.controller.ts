@@ -333,15 +333,11 @@ export const stampCard = async (req: Request, res: Response) => {
 
   const userId = (session.user as { id?: string }).id;
   const businessId = (session.user as { businessId?: string }).businessId;
-  const approved = (session.user as { approved?: boolean }).approved;
 
   if (!userId || !businessId) {
     return res.status(403).json({ message: "invalid session" });
   }
 
-  if (approved === false) {
-    return res.status(403).json({ message: "user not approved" });
-  }
 
   const { id: cardId } = req.params;
   const rawAddedStamps = (req.body as { addedStamps?: number | string })

@@ -21,7 +21,7 @@ export const authConfig: ExpressAuthConfig = {
   session: {
     strategy: "jwt",
   },
-  ...(cookieDomain
+  ...(cookieDomain && isSecureCookie
     ? {
         cookies: {
           sessionToken: {
@@ -101,7 +101,6 @@ export const authConfig: ExpressAuthConfig = {
           role: user.role,
           businessId: user.businessId,
           businessName: user.business.name,
-          approved: user.approved,
         };
       },
     }),
@@ -114,7 +113,6 @@ export const authConfig: ExpressAuthConfig = {
         token.role = (user as any).role;
         token.businessId = (user as any).businessId;
         token.businessName = (user as any).businessName;
-        token.approved = (user as any).approved;
       }
 
       return token;
@@ -149,7 +147,6 @@ export const authConfig: ExpressAuthConfig = {
           (session.user as any).role = user.role;
           (session.user as any).businessId = user.businessId;
           (session.user as any).businessName = user.business.name;
-          (session.user as any).approved = user.approved;
           (session.user as any).businessHasLogo = hasLogo;
           return session;
         }
@@ -158,7 +155,6 @@ export const authConfig: ExpressAuthConfig = {
         (session.user as any).role = token.role;
         (session.user as any).businessId = token.businessId;
         (session.user as any).businessName = token.businessName;
-        (session.user as any).approved = token.approved;
       }
 
       return session;

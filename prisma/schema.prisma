@@ -18,7 +18,6 @@ model User {
   email     String   @unique
   password  String?
   role      UserRole @default(STAFF)
-  approved  Boolean  @default(false)
   businessId String
   business  Business @relation(fields: [businessId], references: [id])
   createdAt DateTime @default(now())

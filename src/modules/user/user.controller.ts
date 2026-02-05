@@ -12,7 +12,6 @@ export const getUserById = async (req: Request, res: Response) => {
       id: true,
       name: true,
       email: true,
-      approved: true,
       createdAt: true,
       updatedAt: true,
       role: true,
@@ -30,7 +29,6 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
       id: true,
       name: true,
       email: true,
-      approved: true,
       createdAt: true,
       updatedAt: true,
       role: true,
@@ -41,13 +39,12 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
 };
 
 export const createUser = async (req: Request, res: Response) => {
-  const { name, email, businessId, password, role, approved } = req.body as {
+  const { name, email, businessId, password, role } = req.body as {
     name?: string;
     email?: string;
     businessId?: string;
     password?: string;
     role?: UserRole;
-    approved?: boolean;
   };
 
   if (!name || typeof name !== "string" || !name.trim()) {
@@ -78,13 +75,11 @@ export const createUser = async (req: Request, res: Response) => {
         businessId,
         password: hashed,
         ...(nextRole ? { role: nextRole } : {}),
-        ...(typeof approved === "boolean" ? { approved } : {}),
       },
       select: {
         id: true,
         name: true,
         email: true,
-        approved: true,
         createdAt: true,
         updatedAt: true,
         role: true,
@@ -104,31 +99,6 @@ export const createUser = async (req: Request, res: Response) => {
   }
 };
 
-export const updateUserApproval = async (req: Request, res: Response) => {
-  const { id } = req.params;
-  const { approved } = req.body as { approved?: boolean };
-
-  if (typeof approved !== "boolean") {
-    return res.status(400).json({ message: "approved must be a boolean" });
-  }
-
-  const user = await prisma.user.update({
-    where: { id },
-    data: { approved },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      approved: true,
-      createdAt: true,
-      updatedAt: true,
-      role: true,
-    },
-  });
-
-  res.json(user);
-};
-
 export const updateUserRole = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { role } = req.body as { role?: UserRole };
@@ -145,7 +115,6 @@ export const updateUserRole = async (req: Request, res: Response) => {
       id: true,
       name: true,
       email: true,
-      approved: true,
       createdAt: true,
       updatedAt: true,
       role: true,
@@ -192,7 +161,6 @@ export const updateUserProfile = async (req: Request, res: Response) => {
         id: true,
         name: true,
         email: true,
-        approved: true,
         createdAt: true,
         updatedAt: true,
         role: true,
@@ -263,7 +231,6 @@ export const userControllers = {
   getUserById,
   getAllUsersByBusinessId,
   createUser,
-  updateUserApproval,
   updateUserRole,
   deleteUser,
   updateUserProfile,
