@@ -24,6 +24,7 @@ type StampHeroOptions = {
   stampRows?: number;
   stampOnUrl?: string;
   stampOffUrl?: string;
+  cardColor?: string;
   useDefaultStamps?: boolean;
   stampOnUrls?: string[];
   stampOffUrls?: string[];

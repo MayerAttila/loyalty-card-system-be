@@ -19,6 +19,14 @@ const corsOrigins = env.CORS_ORIGIN.split(",")
 
 export const app = express();
 
+app.get("/", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+app.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
 app.use(
   cors({
     origin: corsOrigins,

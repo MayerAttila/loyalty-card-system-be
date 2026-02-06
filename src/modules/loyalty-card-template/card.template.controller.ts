@@ -446,6 +446,7 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
         template: true,
         text1: true,
         text2: true,
+        cardColor: true,
         googleWalletClassId: true,
       },
     });
@@ -784,6 +785,7 @@ export const generateTemplateHeroImage = async (
     select: {
       id: true,
       maxPoints: true,
+      cardColor: true,
       useStampImages: true,
       stampOnImageId: true,
       stampOffImageId: true,

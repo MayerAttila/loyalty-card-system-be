@@ -7,8 +7,9 @@ RUN npm ci
 
 FROM deps AS builder
 
-ARG DATABASE_URL
-ENV DATABASE_URL=${DATABASE_URL}
+# Prisma needs DATABASE_URL at build time but doesn't connect.
+# Use a safe default so Docker builds don't require build args.
+ENV DATABASE_URL=postgresql://postgres:postgres@localhost:5432/loyalty_saas?schema=public
 
 COPY prisma ./prisma
 COPY tsconfig.json prisma.config.ts ./
