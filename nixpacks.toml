@@ -1,0 +1,5 @@
+[phases.setup]
+providers = ["node"]
+
+[phases.setup.nixpkgs]
+nodejs = "20.19.0"
