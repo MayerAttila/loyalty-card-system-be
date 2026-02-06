@@ -7,6 +7,9 @@ RUN npm ci
 
 FROM deps AS builder
 
+ARG DATABASE_URL
+ENV DATABASE_URL=${DATABASE_URL}
+
 COPY prisma ./prisma
 COPY tsconfig.json prisma.config.ts ./
 COPY src ./src
