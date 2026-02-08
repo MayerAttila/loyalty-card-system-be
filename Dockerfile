@@ -28,4 +28,5 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/dist ./dist
 
-CMD ["node", "dist/server.js"]
+
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && node dist/server.js"]
