@@ -13,6 +13,7 @@ import {
 
 export const getCardById = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
 
   const card = await prisma.customerLoyaltyCard.findUnique({
     where: { id },
@@ -36,14 +37,27 @@ export const getCardById = async (req: Request, res: Response) => {
     },
   });
 
+  if (!card || (sessionBusinessId && card.template.businessId !== sessionBusinessId)) {
+    return res.status(404).json({ message: "card not found" });
+  }
+
   res.json(card);
 };
 
 export const getCardsByCustomerId = async (req: Request, res: Response) => {
   const { customerId } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
+  if (!sessionBusinessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
 
   const cards = await prisma.customerLoyaltyCard.findMany({
-    where: { customerId },
+    where: {
+      customerId,
+      customer: {
+        businessId: sessionBusinessId,
+      },
+    },
     include: {
       template: {
         select: {
@@ -70,6 +84,10 @@ export const createCustomerCard = async (req: Request, res: Response) => {
     customerId?: string;
     loyaltyCardTemplateId?: string;
   };
+  const sessionBusinessId = req.authUser?.businessId;
+  if (!sessionBusinessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
 
   if (!customerId || typeof customerId !== "string") {
     return res.status(400).json({ message: "customerId is required" });
@@ -102,6 +120,12 @@ export const createCustomerCard = async (req: Request, res: Response) => {
 
   if (customer.businessId !== template.businessId) {
     return res.status(400).json({ message: "business mismatch" });
+  }
+  if (
+    customer.businessId !== sessionBusinessId ||
+    template.businessId !== sessionBusinessId
+  ) {
+    return res.status(403).json({ message: "forbidden business access" });
   }
 
   try {

@@ -2,32 +2,56 @@ import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 
 async function getAllCustomer(req: Request, res: Response) {
-  const customers = await prisma.customer.findMany();
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
+  const customers = await prisma.customer.findMany({
+    where: { businessId },
+  });
   res.json(customers);
 }
 
 async function getCustomerByEmail(req: Request, res: Response) {
   const { email } = req.params;
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
 
   const customer = await prisma.customer.findUnique({
     where: { email },
   });
+  if (!customer || customer.businessId !== businessId) {
+    return res.status(404).json({ message: "customer not found" });
+  }
 
   res.json(customer);
 }
 
 async function getCustomerById(req: Request, res: Response) {
   const { id } = req.params;
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
 
   const customer = await prisma.customer.findUnique({
     where: { id },
   });
+  if (!customer || customer.businessId !== businessId) {
+    return res.status(404).json({ message: "customer not found" });
+  }
 
   res.json(customer);
 }
 
 async function getCustomersByBusinessId(req: Request, res: Response) {
   const { businessId } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
+  if (!sessionBusinessId || sessionBusinessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
+  }
 
   const customers = await prisma.customer.findMany({
     where: { businessId },

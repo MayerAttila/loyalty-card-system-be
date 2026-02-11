@@ -12,6 +12,7 @@ import { buildLoyaltyClassPayload } from "../../lib/walletPassStructure.js";
 
 export const getCardTemplateById = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
   const template = await prisma.loyaltyCardTemplate.findUnique({
     where: { id },
     select: {
@@ -31,6 +32,10 @@ export const getCardTemplateById = async (req: Request, res: Response) => {
     },
   });
 
+  if (!template || (sessionBusinessId && template.businessId !== sessionBusinessId)) {
+    return res.status(404).json({ message: "template not found" });
+  }
+
   res.json(template);
 };
 
@@ -39,6 +44,10 @@ export const getCardTemplatesByBusinessId = async (
   res: Response
 ) => {
   const { businessId } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
+  if (!sessionBusinessId || sessionBusinessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
+  }
   const templates = await prisma.loyaltyCardTemplate.findMany({
     where: { businessId },
     select: {
@@ -95,6 +104,9 @@ export const createCardTemplate = async (req: Request, res: Response) => {
 
   if (!businessId || typeof businessId !== "string") {
     return res.status(400).json({ message: "businessId is required" });
+  }
+  if (req.authUser?.businessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
   }
 
   if (maxPoints !== undefined && typeof maxPoints !== "number") {
@@ -279,6 +291,14 @@ export const createCardTemplate = async (req: Request, res: Response) => {
 
 export const updateCardTemplate = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
+  const templateAccess = await prisma.loyaltyCardTemplate.findUnique({
+    where: { id },
+    select: { businessId: true },
+  });
+  if (!templateAccess || templateAccess.businessId !== sessionBusinessId) {
+    return res.status(404).json({ message: "template not found" });
+  }
   const {
     template,
     text1,
@@ -699,10 +719,19 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
 
 export const deleteCardTemplate = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
   const forceDelete = req.query.force === "1";
 
   if (!id) {
     return res.status(400).json({ message: "id is required" });
+  }
+
+  const templateAccess = await prisma.loyaltyCardTemplate.findUnique({
+    where: { id },
+    select: { businessId: true },
+  });
+  if (!templateAccess || templateAccess.businessId !== sessionBusinessId) {
+    return res.status(404).json({ message: "template not found" });
   }
 
   const existingCards = await prisma.customerLoyaltyCard.findMany({
@@ -767,6 +796,7 @@ export const generateTemplateHeroImage = async (
     count: req.query.count,
   });
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
   const countParam = req.query.count;
   const maxPointsParam = req.query.maxPoints;
   const stampRowsParam = req.query.stampRows;
@@ -784,6 +814,7 @@ export const generateTemplateHeroImage = async (
     where: { id },
     select: {
       id: true,
+      businessId: true,
       maxPoints: true,
       cardColor: true,
       useStampImages: true,
@@ -795,6 +826,9 @@ export const generateTemplateHeroImage = async (
   });
 
   if (!template) {
+    return res.status(404).json({ message: "template not found" });
+  }
+  if (!sessionBusinessId || template.businessId !== sessionBusinessId) {
     return res.status(404).json({ message: "template not found" });
   }
 

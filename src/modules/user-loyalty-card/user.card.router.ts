@@ -1,16 +1,42 @@
 import { Router } from "express";
 import { userCardControllers } from "./user.card.controller.js";
+import {
+  requireBusinessMember,
+  requireRoles,
+  requireSession,
+} from "../../common/middleware/authz.js";
 
 export const userCardRouter = Router();
 
-userCardRouter.get("/id/:id", userCardControllers.getCardById);
+userCardRouter.get(
+  "/id/:id",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN", "STAFF"),
+  userCardControllers.getCardById
+);
 userCardRouter.get(
   "/customer/:customerId",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN", "STAFF"),
   userCardControllers.getCardsByCustomerId
 );
-userCardRouter.post("/", userCardControllers.createCustomerCard);
+userCardRouter.post(
+  "/",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN", "STAFF"),
+  userCardControllers.createCustomerCard
+);
 userCardRouter.post(
   "/id/:id/google-wallet",
   userCardControllers.getGoogleWalletSaveLink
 );
-userCardRouter.post("/id/:id/stamp", userCardControllers.stampCard);
+userCardRouter.post(
+  "/id/:id/stamp",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN", "STAFF"),
+  userCardControllers.stampCard
+);

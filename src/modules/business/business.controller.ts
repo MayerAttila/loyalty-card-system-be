@@ -25,6 +25,15 @@ function getImageExtension(mimeType: string) {
   }
 }
 
+function hasBusinessAccess(req: Request, res: Response, businessId: string) {
+  const sessionBusinessId = req.authUser?.businessId;
+  if (sessionBusinessId && sessionBusinessId !== businessId) {
+    res.status(404).json({ message: "business not found" });
+    return false;
+  }
+  return true;
+}
+
 export const getAllBusinesses = async (req: Request, res: Response) => {
   const businesses = await prisma.business.findMany({
     select: {
@@ -127,6 +136,9 @@ export const createBusiness = async (req: Request, res: Response) => {
 
 export const updateBusiness = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
   const {
     name,
     address,
@@ -228,6 +240,9 @@ export const updateBusiness = async (req: Request, res: Response) => {
 
 export const uploadBusinessLogo = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
   const file = req.file;
 
   if (!file) {
@@ -274,6 +289,9 @@ export const uploadBusinessLogo = async (req: Request, res: Response) => {
 
 export const uploadBusinessStampOn = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
   const file = req.file;
 
   if (!file) {
@@ -316,6 +334,9 @@ export const uploadBusinessStampOn = async (req: Request, res: Response) => {
 
 export const uploadBusinessStampOff = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
   const file = req.file;
 
   if (!file) {
@@ -372,6 +393,9 @@ export const getBusinessLogo = async (req: Request, res: Response) => {
 
 export const deleteBusinessLogo = async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
   const image = await prisma.image.findFirst({
     where: { businessId: id, kind: "BUSINESS_LOGO" },
   });
@@ -448,6 +472,9 @@ export const getBusinessStampOff = async (req: Request, res: Response) => {
 
 export const deleteBusinessStampImage = async (req: Request, res: Response) => {
   const { id, imageId } = req.params;
+  if (!hasBusinessAccess(req, res, id)) {
+    return;
+  }
 
   const image = await prisma.image.findFirst({
     where: {

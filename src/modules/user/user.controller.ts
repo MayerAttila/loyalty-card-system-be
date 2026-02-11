@@ -1,31 +1,57 @@
 import type { Request, Response } from "express";
+import { getSession } from "@auth/express";
 import { UserRole } from "@prisma/client";
 import { prisma } from "../../prisma/client.js";
 import bcrypt from "bcryptjs";
+import { authConfig } from "../../auth.js";
 import {
   sendBusinessWelcomeEmail,
   sendEmployeeInviteEmail,
 } from "../../common/utils/mailer.js";
 
+type SessionActor = {
+  id?: string;
+  businessId?: string;
+  role?: UserRole | string;
+};
+
+const isElevatedRole = (role: UserRole) => role === "OWNER" || role === "ADMIN";
+
+const getSessionActor = async (req: Request): Promise<SessionActor | null> => {
+  const session = await getSession(req, authConfig);
+  return ((session?.user as SessionActor | undefined) ?? null);
+};
+
 export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
   const user = await prisma.user.findUnique({
     where: { id },
     select: {
       id: true,
       name: true,
       email: true,
+      businessId: true,
       createdAt: true,
       updatedAt: true,
       role: true,
     },
   });
 
-  res.json(user);
+  if (!user || (sessionBusinessId && user.businessId !== sessionBusinessId)) {
+    return res.status(404).json({ message: "user not found" });
+  }
+
+  const { businessId: _businessId, ...safeUser } = user;
+  res.json(safeUser);
 };
 
 export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
   const { businessId } = req.params;
+  const sessionBusinessId = req.authUser?.businessId;
+  if (!sessionBusinessId || sessionBusinessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
+  }
   const users = await prisma.user.findMany({
     where: { businessId },
     select: {
@@ -68,6 +94,34 @@ export const createUser = async (req: Request, res: Response) => {
 
   const allowedRoles: UserRole[] = ["OWNER", "ADMIN", "STAFF"];
   const nextRole = role && allowedRoles.includes(role) ? role : undefined;
+  const requestedRole = nextRole ?? "STAFF";
+
+  const actor = await getSessionActor(req);
+  if (actor?.businessId && actor.businessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
+  }
+
+  if (isElevatedRole(requestedRole)) {
+    let allowedByActor = false;
+    if (actor?.businessId === businessId) {
+      if (actor.role === "OWNER") {
+        allowedByActor = true;
+      }
+      if (actor.role === "ADMIN" && requestedRole !== "OWNER") {
+        allowedByActor = true;
+      }
+    }
+
+    if (!allowedByActor) {
+      const existingUsers = await prisma.user.count({ where: { businessId } });
+      const bootstrapOwnerAllowed = requestedRole === "OWNER" && existingUsers === 0;
+      if (!bootstrapOwnerAllowed) {
+        return res.status(403).json({
+          message: "only business admins can assign elevated roles",
+        });
+      }
+    }
+  }
 
   const hashed = await bcrypt.hash(password, 10);
   try {
@@ -131,9 +185,21 @@ export const updateUserRole = async (req: Request, res: Response) => {
   const { id } = req.params;
   const { role } = req.body as { role?: UserRole };
   const allowedRoles: UserRole[] = ["OWNER", "ADMIN", "STAFF"];
+  const actor = req.authUser;
 
   if (!role || !allowedRoles.includes(role)) {
     return res.status(400).json({ message: "role must be OWNER, ADMIN, or STAFF" });
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, businessId: true, role: true },
+  });
+  if (!existing || existing.businessId !== actor?.businessId) {
+    return res.status(404).json({ message: "user not found" });
+  }
+  if (role === "OWNER" && actor?.role !== "OWNER") {
+    return res.status(403).json({ message: "only owners can assign owner role" });
   }
 
   const user = await prisma.user.update({
@@ -154,6 +220,18 @@ export const updateUserRole = async (req: Request, res: Response) => {
 
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
+  const actor = req.authUser;
+
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, businessId: true, role: true },
+  });
+  if (!existing || existing.businessId !== actor?.businessId) {
+    return res.status(404).json({ message: "user not found" });
+  }
+  if (existing.role === "OWNER") {
+    return res.status(403).json({ message: "owner account cannot be deleted" });
+  }
 
   await prisma.user.delete({ where: { id } });
 
@@ -166,6 +244,7 @@ export const updateUserProfile = async (req: Request, res: Response) => {
     name?: string;
     email?: string;
   };
+  const actor = req.authUser;
 
   const nextName = typeof name === "string" ? name.trim() : undefined;
   const nextEmail = typeof email === "string" ? email.trim() : undefined;
@@ -176,6 +255,14 @@ export const updateUserProfile = async (req: Request, res: Response) => {
 
   if (nextEmail && !/.+@.+\..+/.test(nextEmail)) {
     return res.status(400).json({ message: "email is invalid" });
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { businessId: true },
+  });
+  if (!existing || existing.businessId !== actor?.businessId) {
+    return res.status(404).json({ message: "user not found" });
   }
 
   try {
@@ -209,6 +296,7 @@ export const sendEmployeeInvite = async (req: Request, res: Response) => {
     email?: string;
     businessId?: string;
   };
+  const actor = req.authUser;
 
   if (!email || typeof email !== "string") {
     return res.status(400).json({ message: "email is required" });
@@ -216,6 +304,9 @@ export const sendEmployeeInvite = async (req: Request, res: Response) => {
 
   if (!businessId || typeof businessId !== "string") {
     return res.status(400).json({ message: "businessId is required" });
+  }
+  if (!actor?.businessId || actor.businessId !== businessId) {
+    return res.status(403).json({ message: "forbidden business access" });
   }
 
   if (!/.+@.+\..+/.test(email)) {
