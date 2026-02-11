@@ -67,35 +67,23 @@ export const authConfig: ExpressAuthConfig = {
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        console.log("Auth credentials received:", credentials);
         const parsed = credentialsSchema.safeParse(credentials);
-        if (!parsed.success) {
-          console.log("Auth credentials invalid:", parsed.error.flatten());
-        }
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
 
-        let user = null;
-        try {
-          user = await prisma.user.findUnique({
-            where: { email },
-            include: {
-              business: {
-                select: { name: true },
-              },
+        const user = await prisma.user.findUnique({
+          where: { email },
+          include: {
+            business: {
+              select: { name: true },
             },
-          });
-        } catch (error) {
-          console.error("Auth user lookup failed:", error);
-          throw error;
-        }
-        console.log("Auth user lookup:", user ? user.id : "not found");
+          },
+        });
 
         if (!user || !user.password) return null;
 
         const isValid = await bcrypt.compare(password, user.password);
-        console.log("Auth password match:", isValid);
         if (!isValid) return null;
 
         return {
@@ -124,21 +112,28 @@ export const authConfig: ExpressAuthConfig = {
 
     async session({ session, token }) {
       if (session.user && token.id) {
-        const user = await prisma.user.findUnique({
-          where: { id: String(token.id) },
-          include: {
-            business: {
-              select: {
-                name: true,
-                images: {
-                  where: { kind: "BUSINESS_LOGO" },
-                  select: { id: true },
-                  take: 1,
+        let user = null;
+        try {
+          user = await prisma.user.findUnique({
+            where: { id: String(token.id) },
+            include: {
+              business: {
+                select: {
+                  name: true,
+                  images: {
+                    where: { kind: "BUSINESS_LOGO" },
+                    select: { id: true },
+                    take: 1,
+                  },
                 },
               },
             },
-          },
-        });
+          });
+        } catch {
+          // Clear user payload when session hydration fails.
+          delete (session as { user?: unknown }).user;
+          return session;
+        }
 
         if (user) {
           const businessImages =
@@ -154,11 +149,8 @@ export const authConfig: ExpressAuthConfig = {
           (session.user as any).businessHasLogo = hasLogo;
           return session;
         }
-
-        (session.user as any).id = token.id;
-        (session.user as any).role = token.role;
-        (session.user as any).businessId = token.businessId;
-        (session.user as any).businessName = token.businessName;
+        delete (session as { user?: unknown }).user;
+        return session;
       }
 
       return session;
