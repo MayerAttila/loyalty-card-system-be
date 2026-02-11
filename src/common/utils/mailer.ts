@@ -1,10 +1,17 @@
 import nodemailer from "nodemailer";
 import { buildEmployeeInviteEmail } from "../emails/employeeInvite.js";
+import { buildBusinessWelcomeEmail } from "../emails/businessWelcome.js";
 
 type InviteEmailParams = {
   to: string;
   businessName: string;
   inviteUrl: string;
+};
+
+type BusinessWelcomeEmailParams = {
+  to: string;
+  businessName: string;
+  loginUrl: string;
 };
 
 const resolveTransporter = () => {
@@ -40,6 +47,31 @@ export const sendEmployeeInviteEmail = async ({
   const { subject, text, html } = buildEmployeeInviteEmail({
     businessName,
     inviteUrl,
+  });
+
+  await transporter.sendMail({
+    from,
+    to,
+    subject,
+    text,
+    html,
+  });
+};
+
+export const sendBusinessWelcomeEmail = async ({
+  to,
+  businessName,
+  loginUrl,
+}: BusinessWelcomeEmailParams) => {
+  const from = process.env.SMTP_FROM;
+  if (!from) {
+    throw new Error("SMTP_FROM is not configured");
+  }
+
+  const transporter = resolveTransporter();
+  const { subject, text, html } = buildBusinessWelcomeEmail({
+    businessName,
+    loginUrl,
   });
 
   await transporter.sendMail({

@@ -2,7 +2,10 @@ import type { Request, Response } from "express";
 import { UserRole } from "@prisma/client";
 import { prisma } from "../../prisma/client.js";
 import bcrypt from "bcryptjs";
-import { sendEmployeeInviteEmail } from "../../common/utils/mailer.js";
+import {
+  sendBusinessWelcomeEmail,
+  sendEmployeeInviteEmail,
+} from "../../common/utils/mailer.js";
 
 export const getUserById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -83,8 +86,33 @@ export const createUser = async (req: Request, res: Response) => {
         createdAt: true,
         updatedAt: true,
         role: true,
+        business: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
+
+    const assignedRole = user.role;
+    if (assignedRole === "OWNER") {
+      const origin = req.get("origin") ?? "";
+      const baseUrl = process.env.APP_BASE_URL ?? origin;
+      const loginUrl = `${baseUrl.replace(/\/$/, "")}/login`;
+
+      if (baseUrl) {
+        try {
+          await sendBusinessWelcomeEmail({
+            to: user.email,
+            businessName: user.business?.name ?? "your business",
+            loginUrl,
+          });
+        } catch (error) {
+          // Do not fail account creation on email issues.
+          console.error("sendBusinessWelcomeEmail failed", error);
+        }
+      }
+    }
 
     return res.status(201).json(user);
   } catch (error) {
