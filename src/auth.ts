@@ -7,7 +7,11 @@ import { prisma } from "./prisma/client.js";
 
 const authUrl = process.env.AUTH_URL;
 const parsedAuthUrl = authUrl ? new URL(authUrl) : null;
-const cookieDomain = parsedAuthUrl?.hostname;
+const configuredCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+const cookieDomain =
+  configuredCookieDomain && configuredCookieDomain.length > 0
+    ? configuredCookieDomain
+    : parsedAuthUrl?.hostname;
 const isSecureCookie = parsedAuthUrl?.protocol === "https:";
 
 const credentialsSchema = z.object({
