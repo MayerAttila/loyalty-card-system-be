@@ -27,17 +27,6 @@ app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
 
-app.get("/debug-env", (_req, res) => {
-  const dbUrl = process.env.DATABASE_URL ?? "";
-  res.status(200).json({
-    tag: process.env.ENV_TAG ?? null,
-    authUrl: process.env.AUTH_URL ?? null,
-    cookieDomain: process.env.AUTH_COOKIE_DOMAIN ?? null,
-    corsOrigin: process.env.CORS_ORIGIN ?? null,
-    dbPrefix: dbUrl ? dbUrl.slice(0, 60) : null,
-  });
-});
-
 app.use(
   cors({
     origin: corsOrigins,
