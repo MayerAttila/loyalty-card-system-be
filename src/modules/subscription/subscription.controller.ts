@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { authConfig } from "../../auth.js";
 import { prisma } from "../../prisma/client.js";
 import { stripe } from "../../lib/stripe.js";
+import { sendSubscriptionUpdateEmail } from "../../common/utils/mailer.js";
 
 const MONTHLY_PRICE_ID = process.env.STRIPE_PRICE_MONTHLY;
 const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ANNUAL;
@@ -50,6 +51,66 @@ async function requireSubscriptionSession(req: Request, res: Response) {
   }
 
   return user;
+}
+
+async function resolveSubscriptionEmailTarget(
+  businessId: string,
+  fallbackEmail?: string | null
+) {
+  const business = await prisma.business.findUnique({
+    where: { id: businessId },
+    select: { name: true },
+  });
+  if (!business) return null;
+
+  const owner = await prisma.user.findFirst({
+    where: { businessId, role: "OWNER" },
+    select: { email: true },
+  });
+
+  const admin = owner
+    ? null
+    : await prisma.user.findFirst({
+        where: { businessId, role: "ADMIN" },
+        select: { email: true },
+      });
+
+  const to = owner?.email ?? admin?.email ?? fallbackEmail ?? null;
+  if (!to) return null;
+
+  return { to, businessName: business.name };
+}
+
+async function sendSubscriptionEmailSafe(params: {
+  businessId: string;
+  fallbackEmail?: string | null;
+  title: string;
+  summary: string;
+  detailLabel: string;
+  detailValue: string;
+}) {
+  try {
+    const target = await resolveSubscriptionEmailTarget(
+      params.businessId,
+      params.fallbackEmail
+    );
+    if (!target) return;
+
+    const appBaseUrl = process.env.APP_BASE_URL ?? "http://localhost:3211";
+    const dashboardUrl = `${appBaseUrl.replace(/\/$/, "")}/subscription`;
+
+    await sendSubscriptionUpdateEmail({
+      to: target.to,
+      businessName: target.businessName,
+      title: params.title,
+      summary: params.summary,
+      detailLabel: params.detailLabel,
+      detailValue: params.detailValue,
+      dashboardUrl,
+    });
+  } catch (error) {
+    console.error("sendSubscriptionUpdateEmail failed", error);
+  }
 }
 
 async function updateBusinessFromSubscription(
@@ -193,6 +254,15 @@ export const startTrialNoCard = async (req: Request, res: Response) => {
     },
   });
 
+  void sendSubscriptionEmailSafe({
+    businessId: business.id,
+    fallbackEmail: user.email,
+    title: "Your free trial is active",
+    summary: "Your trial has started successfully. You now have full access during the trial period.",
+    detailLabel: "Trial ends",
+    detailValue: endsAt.toISOString().slice(0, 10),
+  });
+
   return res.json({ status: "trial", trialEndsAt: endsAt });
 };
 
@@ -310,6 +380,18 @@ export const cancelSubscription = async (req: Request, res: Response) => {
 
   await updateBusinessFromSubscription(updated);
 
+  void sendSubscriptionEmailSafe({
+    businessId: user.businessId as string,
+    fallbackEmail: user.email,
+    title: "Subscription cancellation scheduled",
+    summary:
+      "Your subscription remains active until the current billing period ends, then it will be canceled.",
+    detailLabel: "Current period end",
+    detailValue: updated.current_period_end
+      ? new Date(updated.current_period_end * 1000).toISOString().slice(0, 10)
+      : "N/A",
+  });
+
   return res.json({ status: updated.status, cancelAtPeriodEnd: true });
 };
 
@@ -331,6 +413,15 @@ export const cancelSubscriptionNow = async (req: Request, res: Response) => {
   );
 
   await updateBusinessFromSubscription(canceled);
+
+  void sendSubscriptionEmailSafe({
+    businessId: user.businessId as string,
+    fallbackEmail: user.email,
+    title: "Subscription canceled",
+    summary: "Your subscription was canceled immediately.",
+    detailLabel: "Status",
+    detailValue: canceled.status,
+  });
 
   return res.json({ status: canceled.status });
 };
@@ -571,6 +662,18 @@ export const handleWebhook = async (req: Request, res: Response) => {
             subscriptionId
           );
           await updateBusinessFromSubscription(subscription);
+          if (subscription.metadata?.businessId) {
+            void sendSubscriptionEmailSafe({
+              businessId: subscription.metadata.businessId,
+              title: "Subscription started",
+              summary:
+                "Your subscription checkout completed successfully and your plan is now active.",
+              detailLabel: "Plan",
+              detailValue: subscription.items.data[0]?.price?.nickname
+                ? String(subscription.items.data[0].price.nickname)
+                : subscription.items.data[0]?.price?.id ?? "N/A",
+            });
+          }
         }
         break;
       }
