@@ -16,6 +16,27 @@ type SessionActor = {
 };
 
 const isElevatedRole = (role: UserRole) => role === "OWNER" || role === "ADMIN";
+const getPasswordRuleError = (password: string) => {
+  const failures: string[] = [];
+  if (password.length < 8) {
+    failures.push("be at least 8 characters");
+  }
+  if (!/[A-Z]/.test(password)) {
+    failures.push("include at least one uppercase letter");
+  }
+  if (!/\d/.test(password)) {
+    failures.push("include at least one number");
+  }
+  if (!failures.length) return null;
+
+  if (failures.length === 1) {
+    return `password must ${failures[0]}`;
+  }
+  if (failures.length === 2) {
+    return `password must ${failures[0]} and ${failures[1]}`;
+  }
+  return `password must ${failures[0]}, ${failures[1]}, and ${failures[2]}`;
+};
 
 const getSessionActor = async (req: Request): Promise<SessionActor | null> => {
   const session = await getSession(req, authConfig);
@@ -90,6 +111,10 @@ export const createUser = async (req: Request, res: Response) => {
   }
   if (!password || typeof password !== "string") {
     return res.status(400).json({ message: "password is required" });
+  }
+  const passwordRuleError = getPasswordRuleError(password);
+  if (passwordRuleError) {
+    return res.status(400).json({ message: passwordRuleError });
   }
 
   const allowedRoles: UserRole[] = ["OWNER", "ADMIN", "STAFF"];
