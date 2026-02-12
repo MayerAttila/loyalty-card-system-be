@@ -16,7 +16,7 @@ const isSecureCookie = parsedAuthUrl?.protocol === "https:";
 
 const credentialsSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(1),
 });
 
 export const authConfig: ExpressAuthConfig = {
@@ -71,9 +71,15 @@ export const authConfig: ExpressAuthConfig = {
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
+        const normalizedEmail = email.trim();
 
-        const user = await prisma.user.findUnique({
-          where: { email },
+        const user = await prisma.user.findFirst({
+          where: {
+            email: {
+              equals: normalizedEmail,
+              mode: "insensitive",
+            },
+          },
           include: {
             business: {
               select: { name: true },

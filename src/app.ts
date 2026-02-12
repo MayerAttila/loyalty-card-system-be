@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { authConfig } from "./auth.js";
 import { errorMiddleware } from "./common/errors/errorMiddleware.js";
+import { requestLogger } from "./common/middleware/requestLogger.js";
 import { customerRoutes } from "./modules/customer/customer.routes.js";
 import { businessRouter } from "./modules/business/business.router.js";
 import { userRoutes } from "./modules/user/user.router.js";
@@ -26,6 +27,8 @@ app.get("/", (_req, res) => {
 app.get("/health", (_req, res) => {
   res.status(200).json({ status: "ok" });
 });
+
+app.use(requestLogger);
 
 app.use(
   cors({
