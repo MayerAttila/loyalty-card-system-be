@@ -4,6 +4,7 @@ import { prisma } from "../../prisma/client.js";
 import { authConfig } from "../../auth.js";
 import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.js";
 import { getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
+import { createAppleWalletPass } from "../../lib/appleWallet.js";
 import {
   buildStampImageModule,
   buildStampTextModules,
@@ -349,6 +350,99 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
   res.json({ saveUrl, classId, objectId });
 };
 
+export const getAppleWalletPass = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!id) {
+    return res.status(400).json({ message: "id is required" });
+  }
+
+  const card = await prisma.customerLoyaltyCard.findUnique({
+    where: { id },
+    include: {
+      customer: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+      template: {
+        select: {
+          id: true,
+          template: true,
+          text1: true,
+          text2: true,
+          maxPoints: true,
+          cardColor: true,
+          business: {
+            select: {
+              name: true,
+              website: true,
+              images: {
+                where: { kind: "BUSINESS_LOGO" },
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { url: true },
+              },
+            },
+          },
+        },
+      },
+      customerLoyaltyCardCycles: {
+        orderBy: { cycleNumber: "desc" },
+        take: 1,
+        select: {
+          stampCount: true,
+          cycleNumber: true,
+        },
+      },
+    },
+  });
+
+  if (!card) {
+    return res.status(404).json({ message: "card not found" });
+  }
+
+  const latestCycle = card.customerLoyaltyCardCycles[0];
+  const stampCount = latestCycle?.stampCount ?? 0;
+  const cycleNumber = latestCycle?.cycleNumber ?? 1;
+  const rewardsEarned = Math.max(cycleNumber - 1, 0);
+  const logoImageUrl = card.template.business.images[0]?.url ?? null;
+  const stripImageUrl = getStampHeroImageUrl(card.template.id, stampCount);
+
+  try {
+    const pass = await createAppleWalletPass({
+      cardId: card.id,
+      serialNumber: card.id,
+      barcodeValue: card.id,
+      customerName: card.customer.name,
+      customerEmail: card.customer.email,
+      programName: card.template.text2 ?? card.template.template,
+      issuerName: card.template.text1 ?? card.template.business.name,
+      businessName: card.template.business.name,
+      templateName: card.template.template,
+      stampCount,
+      maxPoints: card.template.maxPoints,
+      rewardsEarned,
+      cycleNumber,
+      cardColor: card.template.cardColor,
+      websiteUrl: card.template.business.website,
+      logoImageUrl,
+      stripImageUrl,
+    });
+
+    res.setHeader("Content-Type", pass.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${pass.fileName}"`
+    );
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(pass.buffer);
+  } catch (error) {
+    console.error("[apple-wallet] pass generation failed", error);
+    return res.status(500).json({ message: "unable to generate Apple Wallet pass" });
+  }
+};
+
 export const stampCard = async (req: Request, res: Response) => {
   const session = await getSession(req, authConfig);
   if (!session?.user) {
@@ -560,5 +654,6 @@ export const userCardControllers = {
   getCardsByCustomerId,
   createCustomerCard,
   getGoogleWalletSaveLink,
+  getAppleWalletPass,
   stampCard,
 };

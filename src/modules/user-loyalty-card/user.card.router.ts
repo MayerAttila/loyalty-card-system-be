@@ -33,6 +33,10 @@ userCardRouter.post(
   "/id/:id/google-wallet",
   userCardControllers.getGoogleWalletSaveLink
 );
+userCardRouter.get(
+  "/id/:id/apple-wallet",
+  userCardControllers.getAppleWalletPass
+);
 userCardRouter.post(
   "/id/:id/stamp",
   requireSession,
