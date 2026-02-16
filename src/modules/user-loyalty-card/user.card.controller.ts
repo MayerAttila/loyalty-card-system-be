@@ -423,7 +423,6 @@ export const getAppleWalletPass = async (req: Request, res: Response) => {
       stampCount,
       maxPoints: card.template.maxPoints,
       rewardsEarned,
-      cycleNumber,
       cardColor: card.template.cardColor,
       websiteUrl: card.template.business.website,
       logoImageUrl,

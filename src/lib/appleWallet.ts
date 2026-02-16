@@ -29,7 +29,6 @@ export type AppleWalletPassInput = {
   stampCount: number;
   maxPoints: number;
   rewardsEarned?: number;
-  cycleNumber?: number;
   cardColor?: string | null;
   websiteUrl?: string | null;
   logoImageUrl?: string | null;
@@ -288,14 +287,34 @@ function scaleNearest(source: PNG, width: number, height: number) {
   return output;
 }
 
-function scaleToFitTransparent(source: PNG, width: number, height: number) {
+function scaleToFitTransparent(
+  source: PNG,
+  width: number,
+  height: number,
+  options?: {
+    alignX?: "left" | "center" | "right";
+    alignY?: "top" | "center" | "bottom";
+  },
+) {
   const ratio = Math.min(width / source.width, height / source.height);
   const targetWidth = Math.max(1, Math.floor(source.width * ratio));
   const targetHeight = Math.max(1, Math.floor(source.height * ratio));
   const scaled = scaleNearest(source, targetWidth, targetHeight);
   const output = new PNG({ width, height });
-  const startX = Math.floor((width - targetWidth) / 2);
-  const startY = Math.floor((height - targetHeight) / 2);
+  const alignX = options?.alignX ?? "center";
+  const alignY = options?.alignY ?? "center";
+  const startX =
+    alignX === "left"
+      ? 0
+      : alignX === "right"
+        ? width - targetWidth
+        : Math.floor((width - targetWidth) / 2);
+  const startY =
+    alignY === "top"
+      ? 0
+      : alignY === "bottom"
+        ? height - targetHeight
+        : Math.floor((height - targetHeight) / 2);
 
   for (let y = 0; y < targetHeight; y += 1) {
     for (let x = 0; x < targetWidth; x += 1) {
@@ -322,7 +341,9 @@ async function tryFetchPng(url: string | null | undefined) {
       return null;
     }
     const body = Buffer.from(await response.arrayBuffer());
-    const contentType = (response.headers.get("content-type") ?? "").toLowerCase();
+    const contentType = (
+      response.headers.get("content-type") ?? ""
+    ).toLowerCase();
 
     if (contentType.includes("svg")) {
       const { Resvg } = await import("@resvg/resvg-js");
@@ -345,7 +366,7 @@ async function tryFetchPng(url: string | null | undefined) {
 async function runOpenSSL(
   opensslPath: string,
   args: string[],
-  options?: { cwd?: string; input?: Buffer | string }
+  options?: { cwd?: string; input?: Buffer | string },
 ) {
   return new Promise<Buffer>((resolve, reject) => {
     const child = spawn(opensslPath, args, {
@@ -371,8 +392,8 @@ async function runOpenSSL(
         new Error(
           `OpenSSL command failed (exit ${code}): openssl ${args.join(" ")}${
             stderr ? `\n${stderr}` : ""
-          }`
-        )
+          }`,
+        ),
       );
     });
 
@@ -386,20 +407,23 @@ async function runOpenSSL(
 function buildPassJson(
   config: AppleWalletConfig,
   input: AppleWalletPassInput,
-  serialNumber: string
+  serialNumber: string,
 ) {
   const safeMaxPoints = Math.max(1, Math.trunc(input.maxPoints));
   const safeStampCount = Math.min(
     safeMaxPoints,
-    Math.max(0, Math.trunc(input.stampCount))
+    Math.max(0, Math.trunc(input.stampCount)),
   );
   const safeRewards = Math.max(0, Math.trunc(input.rewardsEarned ?? 0));
-  const safeCycle = Math.max(1, Math.trunc(input.cycleNumber ?? 1));
   const backgroundHex = normalizeHexColor(input.cardColor);
   const foreground = getForegroundColor(backgroundHex);
   const barcodeMessage = (input.barcodeValue ?? input.cardId).trim();
   const authenticationToken = input.authenticationToken?.trim() ?? "";
   const webServiceUrl = input.webServiceUrl?.trim() ?? "";
+  const businessDisplayName =
+    input.businessName?.trim() ||
+    input.issuerName?.trim() ||
+    config.organizationName;
 
   const pass: Record<string, unknown> = {
     formatVersion: 1,
@@ -408,7 +432,8 @@ function buildPassJson(
     teamIdentifier: config.teamIdentifier,
     organizationName: config.organizationName,
     description: config.description,
-    logoText: input.programName || input.businessName || "Loyale",
+    // Keep logo-only on the left side.
+    logoText: " ",
     backgroundColor: toPassRgb(backgroundHex),
     foregroundColor: foreground,
     labelColor: foreground,
@@ -423,66 +448,28 @@ function buildPassJson(
         format: "PKBarcodeFormatQR",
         message: barcodeMessage,
         messageEncoding: "iso-8859-1",
-        altText: "Loyalty card",
       },
     ],
     storeCard: {
+      // Top-right business name.
       headerFields: [
+        {
+          key: "business",
+          label: "Business",
+          value: businessDisplayName,
+        },
+      ],
+      // Bottom row: progress (left) + rewards (right).
+      auxiliaryFields: [
         {
           key: "stamps",
           label: "Stamps",
           value: `${safeStampCount}/${safeMaxPoints}`,
         },
-      ],
-      primaryFields: [
-        {
-          key: "program",
-          label: "Program",
-          value: input.programName || input.templateName || "Loyalty Card",
-        },
-      ],
-      secondaryFields: [
-        {
-          key: "customer",
-          label: "Customer",
-          value: input.customerName,
-        },
         {
           key: "rewards",
           label: "Rewards",
           value: safeRewards,
-        },
-      ],
-      auxiliaryFields: [
-        {
-          key: "cycle",
-          label: "Cycle",
-          value: safeCycle,
-        },
-      ],
-      backFields: [
-        ...(input.customerEmail
-          ? [
-              {
-                key: "email",
-                label: "Customer Email",
-                value: input.customerEmail,
-              },
-            ]
-          : []),
-        ...(input.websiteUrl
-          ? [
-              {
-                key: "website",
-                label: "Website",
-                value: input.websiteUrl,
-              },
-            ]
-          : []),
-        {
-          key: "cardId",
-          label: "Card ID",
-          value: input.cardId,
         },
       ],
     },
@@ -511,15 +498,21 @@ function toFileSlug(value: string | undefined | null) {
 }
 
 export async function createAppleWalletPass(
-  input: AppleWalletPassInput
+  input: AppleWalletPassInput,
 ): Promise<AppleWalletPassBundle> {
   const config = readConfig();
 
   if (!existsSync(config.p12Path)) {
-    throw new Error(`Apple Wallet certificate file not found: ${config.p12Path}`);
+    throw new Error(
+      `Apple Wallet certificate file not found: ${config.p12Path}`,
+    );
   }
 
-  const serialNumber = (input.serialNumber ?? input.cardId ?? randomUUID()).trim();
+  const serialNumber = (
+    input.serialNumber ??
+    input.cardId ??
+    randomUUID()
+  ).trim();
   if (!serialNumber) {
     throw new Error("serial number is required");
   }
@@ -544,7 +537,12 @@ export async function createAppleWalletPass(
 
   const logoRemote = await tryFetchPng(input.logoImageUrl);
   const logo = logoRemote
-    ? PNG.sync.write(scaleToFitTransparent(PNG.sync.read(logoRemote), 320, 100))
+    ? PNG.sync.write(
+        scaleToFitTransparent(PNG.sync.read(logoRemote), 320, 100, {
+          alignX: "left",
+          alignY: "top",
+        }),
+      )
     : createFallbackImage({
         width: 320,
         height: 100,
@@ -554,7 +552,9 @@ export async function createAppleWalletPass(
 
   const stripRemote = await tryFetchPng(input.stripImageUrl);
   const strip = stripRemote
-    ? PNG.sync.write(scaleToFitTransparent(PNG.sync.read(stripRemote), 624, 196))
+    ? PNG.sync.write(
+        scaleToFitTransparent(PNG.sync.read(stripRemote), 624, 196),
+      )
     : null;
 
   const passJson = buildPassJson(config, input, serialNumber);
@@ -575,7 +575,10 @@ export async function createAppleWalletPass(
   for (const entry of entries) {
     manifestRecord[entry.name] = toSha1Hex(entry.data);
   }
-  const manifestBuffer = Buffer.from(JSON.stringify(manifestRecord, null, 2), "utf8");
+  const manifestBuffer = Buffer.from(
+    JSON.stringify(manifestRecord, null, 2),
+    "utf8",
+  );
 
   const tempDir = await mkdtemp(path.join(os.tmpdir(), "loyale-apple-pass-"));
   try {
@@ -646,7 +649,7 @@ export async function createAppleWalletPass(
     entries.push({ name: "signature", data: signatureBuffer });
 
     const fileName = `${toFileSlug(input.businessName || input.programName)}-${toFileSlug(
-      serialNumber
+      serialNumber,
     )}.pkpass`;
 
     return {
