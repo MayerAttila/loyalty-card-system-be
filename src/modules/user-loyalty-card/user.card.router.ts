@@ -8,6 +8,24 @@ import {
 
 export const userCardRouter = Router();
 
+userCardRouter.post(
+  "/apple-wallet/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber",
+  userCardControllers.registerAppleWalletPass
+);
+userCardRouter.delete(
+  "/apple-wallet/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier/:serialNumber",
+  userCardControllers.unregisterAppleWalletPass
+);
+userCardRouter.get(
+  "/apple-wallet/v1/devices/:deviceLibraryIdentifier/registrations/:passTypeIdentifier",
+  userCardControllers.listAppleWalletPassesForDevice
+);
+userCardRouter.get(
+  "/apple-wallet/v1/passes/:passTypeIdentifier/:serialNumber",
+  userCardControllers.getAppleWalletPassBySerial
+);
+userCardRouter.post("/apple-wallet/v1/log", userCardControllers.appleWalletLog);
+
 userCardRouter.get(
   "/id/:id",
   requireSession,

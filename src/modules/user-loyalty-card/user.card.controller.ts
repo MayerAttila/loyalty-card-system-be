@@ -6,11 +6,128 @@ import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.j
 import { getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
 import { createAppleWalletPass } from "../../lib/appleWallet.js";
 import {
+  getAppleWalletAuthToken,
+  getAppleWalletSerialLastUpdated,
+  getAppleWalletWebServiceUrl,
+  isAuthorizedAppleWalletRequest,
+  isSupportedAppleWalletPassType,
+  listAppleWalletSerialNumbers,
+  notifyAppleWalletPassUpdated,
+  registerAppleWalletDevice,
+  unregisterAppleWalletDevice,
+} from "../../lib/appleWalletUpdateFlow.js";
+import {
   buildStampImageModule,
   buildStampTextModules,
   buildLoyaltyClassPayload,
   buildLoyaltyObjectPayload,
 } from "../../lib/walletPassStructure.js";
+
+const resolvePassTypeIdentifier = () =>
+  process.env.APPLE_WALLET_PASS_TYPE_ID?.trim() ?? "";
+
+const trimTrailingSlash = (value: string) => value.replace(/\/+$/, "");
+const normalizeHttpsUrl = (value: string | null | undefined) => {
+  const trimmed = value?.trim() ?? "";
+  if (!trimmed) return null;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:") return null;
+    return trimTrailingSlash(parsed.toString());
+  } catch {
+    return null;
+  }
+};
+
+const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
+  const card = await prisma.customerLoyaltyCard.findUnique({
+    where: { id: cardId },
+    include: {
+      customer: {
+        select: {
+          name: true,
+          email: true,
+        },
+      },
+      template: {
+        select: {
+          id: true,
+          template: true,
+          text1: true,
+          text2: true,
+          maxPoints: true,
+          cardColor: true,
+          business: {
+            select: {
+              name: true,
+              website: true,
+              images: {
+                where: { kind: "BUSINESS_LOGO" },
+                orderBy: { createdAt: "desc" },
+                take: 1,
+                select: { url: true },
+              },
+            },
+          },
+        },
+      },
+      customerLoyaltyCardCycles: {
+        orderBy: { cycleNumber: "desc" },
+        take: 1,
+        select: {
+          stampCount: true,
+          cycleNumber: true,
+        },
+      },
+    },
+  });
+
+  if (!card) {
+    return null;
+  }
+
+  const latestCycle = card.customerLoyaltyCardCycles[0];
+  const stampCount = latestCycle?.stampCount ?? 0;
+  const cycleNumber = latestCycle?.cycleNumber ?? 1;
+  const rewardsEarned = Math.max(cycleNumber - 1, 0);
+  const logoImageUrl = card.template.business.images[0]?.url ?? null;
+  const stripImageUrl = getStampHeroImageUrl(card.template.id, stampCount);
+  const authenticationToken = getAppleWalletAuthToken() ?? undefined;
+  const configuredWebServiceUrl = getAppleWalletWebServiceUrl();
+  const requestBaseUrl =
+    req && req.get("host") ? `${req.protocol}://${req.get("host")}` : null;
+  const requestWebServiceUrl = requestBaseUrl
+    ? normalizeHttpsUrl(
+        `${trimTrailingSlash(requestBaseUrl)}/user-loyalty-card/apple-wallet/v1`,
+      )
+    : null;
+  const webServiceUrl =
+    configuredWebServiceUrl ?? requestWebServiceUrl ?? undefined;
+
+  const pass = await createAppleWalletPass({
+    cardId: card.id,
+    serialNumber: card.id,
+    barcodeValue: card.id,
+    customerName: card.customer.name,
+    customerEmail: card.customer.email,
+    programName: card.template.text2 ?? card.template.template,
+    issuerName: card.template.text1 ?? card.template.business.name,
+    businessName: card.template.business.name,
+    templateName: card.template.template,
+    stampCount,
+    maxPoints: card.template.maxPoints,
+    rewardsEarned,
+    cardColor: card.template.cardColor,
+    websiteUrl: card.template.business.website,
+    logoImageUrl,
+    stripImageUrl,
+    authenticationToken,
+    webServiceUrl,
+  });
+
+  return pass;
+};
 
 export const getCardById = async (req: Request, res: Response) => {
   const { id } = req.params;
@@ -288,6 +405,28 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     });
   }
 
+  // Keep existing classes visually aligned with current template behavior.
+  try {
+    const classUpdateRes = await walletRequest(
+      `/loyaltyClass/${encodeURIComponent(classId)}?updateMask=programName`,
+      {
+        method: "PATCH",
+        body: {
+          programName: "\u00A0",
+        },
+      },
+    );
+    if (!classUpdateRes.ok) {
+      const updateText = await classUpdateRes.text();
+      console.warn("[wallet] class programName update failed", {
+        status: classUpdateRes.status,
+        details: updateText,
+      });
+    }
+  } catch (error) {
+    console.warn("[wallet] class programName update error", error);
+  }
+
   const objectRes = await walletRequest(
     `/loyaltyObject/${encodeURIComponent(objectId)}`
   );
@@ -356,90 +495,176 @@ export const getAppleWalletPass = async (req: Request, res: Response) => {
     return res.status(400).json({ message: "id is required" });
   }
 
-  const card = await prisma.customerLoyaltyCard.findUnique({
-    where: { id },
-    include: {
-      customer: {
-        select: {
-          name: true,
-          email: true,
-        },
-      },
-      template: {
-        select: {
-          id: true,
-          template: true,
-          text1: true,
-          text2: true,
-          maxPoints: true,
-          cardColor: true,
-          business: {
-            select: {
-              name: true,
-              website: true,
-              images: {
-                where: { kind: "BUSINESS_LOGO" },
-                orderBy: { createdAt: "desc" },
-                take: 1,
-                select: { url: true },
-              },
-            },
-          },
-        },
-      },
-      customerLoyaltyCardCycles: {
-        orderBy: { cycleNumber: "desc" },
-        take: 1,
-        select: {
-          stampCount: true,
-          cycleNumber: true,
-        },
-      },
-    },
-  });
-
-  if (!card) {
-    return res.status(404).json({ message: "card not found" });
-  }
-
-  const latestCycle = card.customerLoyaltyCardCycles[0];
-  const stampCount = latestCycle?.stampCount ?? 0;
-  const cycleNumber = latestCycle?.cycleNumber ?? 1;
-  const rewardsEarned = Math.max(cycleNumber - 1, 0);
-  const logoImageUrl = card.template.business.images[0]?.url ?? null;
-  const stripImageUrl = getStampHeroImageUrl(card.template.id, stampCount);
-
   try {
-    const pass = await createAppleWalletPass({
-      cardId: card.id,
-      serialNumber: card.id,
-      barcodeValue: card.id,
-      customerName: card.customer.name,
-      customerEmail: card.customer.email,
-      programName: card.template.text2 ?? card.template.template,
-      issuerName: card.template.text1 ?? card.template.business.name,
-      businessName: card.template.business.name,
-      templateName: card.template.template,
-      stampCount,
-      maxPoints: card.template.maxPoints,
-      rewardsEarned,
-      cardColor: card.template.cardColor,
-      websiteUrl: card.template.business.website,
-      logoImageUrl,
-      stripImageUrl,
-    });
+    const pass = await buildAppleWalletPassBundle(id, req);
+    if (!pass) {
+      return res.status(404).json({ message: "card not found" });
+    }
 
     res.setHeader("Content-Type", pass.mimeType);
     res.setHeader(
       "Content-Disposition",
-      `attachment; filename="${pass.fileName}"`
+      `attachment; filename="${pass.fileName}"`,
     );
     res.setHeader("Cache-Control", "no-store");
     return res.status(200).send(pass.buffer);
   } catch (error) {
     console.error("[apple-wallet] pass generation failed", error);
-    return res.status(500).json({ message: "unable to generate Apple Wallet pass" });
+    return res
+      .status(500)
+      .json({ message: "unable to generate Apple Wallet pass" });
   }
+};
+
+export const registerAppleWalletPass = async (req: Request, res: Response) => {
+  const { deviceLibraryIdentifier, passTypeIdentifier, serialNumber } =
+    req.params;
+  const { pushToken } = req.body as { pushToken?: string };
+
+  if (
+    !deviceLibraryIdentifier ||
+    !passTypeIdentifier ||
+    !serialNumber ||
+    !pushToken
+  ) {
+    return res.status(400).json({ message: "missing registration fields" });
+  }
+
+  if (!isSupportedAppleWalletPassType(passTypeIdentifier)) {
+    return res.status(404).json({ message: "pass type not found" });
+  }
+
+  if (!isAuthorizedAppleWalletRequest(req.headers.authorization)) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+
+  const result = registerAppleWalletDevice({
+    deviceLibraryIdentifier,
+    passTypeIdentifier,
+    serialNumber,
+    pushToken,
+  });
+
+  return res.status(result.created ? 201 : 200).json({});
+};
+
+export const unregisterAppleWalletPass = async (
+  req: Request,
+  res: Response,
+) => {
+  const { deviceLibraryIdentifier, passTypeIdentifier, serialNumber } =
+    req.params;
+
+  if (!deviceLibraryIdentifier || !passTypeIdentifier || !serialNumber) {
+    return res.status(400).json({ message: "missing registration fields" });
+  }
+
+  if (!isSupportedAppleWalletPassType(passTypeIdentifier)) {
+    return res.status(404).json({ message: "pass type not found" });
+  }
+
+  if (!isAuthorizedAppleWalletRequest(req.headers.authorization)) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+
+  unregisterAppleWalletDevice({
+    deviceLibraryIdentifier,
+    passTypeIdentifier,
+    serialNumber,
+  });
+
+  return res.status(200).json({});
+};
+
+export const listAppleWalletPassesForDevice = async (
+  req: Request,
+  res: Response,
+) => {
+  const { deviceLibraryIdentifier, passTypeIdentifier } = req.params;
+
+  if (!deviceLibraryIdentifier || !passTypeIdentifier) {
+    return res.status(400).json({ message: "missing request fields" });
+  }
+
+  if (!isSupportedAppleWalletPassType(passTypeIdentifier)) {
+    return res.status(404).json({ message: "pass type not found" });
+  }
+
+  if (!isAuthorizedAppleWalletRequest(req.headers.authorization)) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+
+  const payload = listAppleWalletSerialNumbers({
+    deviceLibraryIdentifier,
+    passTypeIdentifier,
+    passesUpdatedSince:
+      typeof req.query.passesUpdatedSince === "string"
+        ? req.query.passesUpdatedSince
+        : null,
+  });
+
+  return res.status(200).json(payload);
+};
+
+export const getAppleWalletPassBySerial = async (
+  req: Request,
+  res: Response,
+) => {
+  const { passTypeIdentifier, serialNumber } = req.params;
+
+  if (!passTypeIdentifier || !serialNumber) {
+    return res.status(400).json({ message: "missing request fields" });
+  }
+
+  if (!isSupportedAppleWalletPassType(passTypeIdentifier)) {
+    return res.status(404).json({ message: "pass type not found" });
+  }
+
+  if (!isAuthorizedAppleWalletRequest(req.headers.authorization)) {
+    return res.status(401).json({ message: "unauthorized" });
+  }
+
+  try {
+    const pass = await buildAppleWalletPassBundle(serialNumber, req);
+    if (!pass) {
+      return res.status(404).json({ message: "card not found" });
+    }
+
+    const ifModifiedSince = req.headers["if-modified-since"];
+    const serialUpdatedAt = getAppleWalletSerialLastUpdated(serialNumber);
+    if (
+      typeof ifModifiedSince === "string" &&
+      serialUpdatedAt &&
+      !Number.isNaN(Date.parse(ifModifiedSince))
+    ) {
+      const sinceDate = new Date(ifModifiedSince);
+      if (serialUpdatedAt.getTime() <= sinceDate.getTime()) {
+        return res.status(304).end();
+      }
+    }
+
+    if (serialUpdatedAt) {
+      res.setHeader("Last-Modified", serialUpdatedAt.toUTCString());
+    }
+    res.setHeader("Content-Type", pass.mimeType);
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${pass.fileName}"`,
+    );
+    res.setHeader("Cache-Control", "no-store");
+    return res.status(200).send(pass.buffer);
+  } catch (error) {
+    console.error("[apple-wallet] pass generation failed", error);
+    return res
+      .status(500)
+      .json({ message: "unable to generate Apple Wallet pass" });
+  }
+};
+
+export const appleWalletLog = async (req: Request, res: Response) => {
+  const { logs } = req.body as { logs?: unknown };
+  console.log("[apple-wallet][device-log]", logs);
+  return res.status(200).json({});
 };
 
 export const stampCard = async (req: Request, res: Response) => {
@@ -633,6 +858,14 @@ export const stampCard = async (req: Request, res: Response) => {
     walletUpdateError = (error as Error).message ?? "wallet update failed";
   }
 
+  const applePassTypeIdentifier = resolvePassTypeIdentifier();
+  if (applePassTypeIdentifier) {
+    void notifyAppleWalletPassUpdated({
+      passTypeIdentifier: applePassTypeIdentifier,
+      serialNumber: card.id,
+    });
+  }
+
   return res.json({
     cardId: card.id,
     customerName: card.customer.name,
@@ -654,5 +887,10 @@ export const userCardControllers = {
   createCustomerCard,
   getGoogleWalletSaveLink,
   getAppleWalletPass,
+  registerAppleWalletPass,
+  unregisterAppleWalletPass,
+  listAppleWalletPassesForDevice,
+  getAppleWalletPassBySerial,
+  appleWalletLog,
   stampCard,
 };
