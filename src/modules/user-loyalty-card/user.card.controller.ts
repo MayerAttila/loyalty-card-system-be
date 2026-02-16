@@ -288,6 +288,28 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     });
   }
 
+  // Normalize existing classes too so the top program-name section stays hidden.
+  try {
+    const classUpdateRes = await walletRequest(
+      `/loyaltyClass/${encodeURIComponent(classId)}?updateMask=programName`,
+      {
+        method: "PATCH",
+        body: {
+          programName: "\u00A0",
+        },
+      },
+    );
+    if (!classUpdateRes.ok) {
+      const updateText = await classUpdateRes.text();
+      console.warn("[wallet] class programName update failed", {
+        status: classUpdateRes.status,
+        details: updateText,
+      });
+    }
+  } catch (error) {
+    console.warn("[wallet] class programName update error", error);
+  }
+
   const objectRes = await walletRequest(
     `/loyaltyObject/${encodeURIComponent(objectId)}`
   );

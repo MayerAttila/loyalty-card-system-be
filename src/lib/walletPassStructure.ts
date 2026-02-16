@@ -102,10 +102,13 @@ export function buildLoyaltyClassPayload(params: {
   websiteUrl?: string;
   hexBackgroundColor?: string;
 }) {
+  // Keep programName non-empty (Google requires it), but visually minimal.
+  const hiddenProgramName = "\u00A0";
+
   return {
     id: params.classId,
     issuerName: params.issuerName,
-    programName: params.programName,
+    programName: hiddenProgramName,
     programLogo: {
       sourceUri: { uri: params.programLogoUrl },
     },
