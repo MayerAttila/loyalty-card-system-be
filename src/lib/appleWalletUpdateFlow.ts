@@ -53,9 +53,24 @@ function toBase64Url(value: Buffer | string) {
 }
 
 function parseAppleAuthHeader(headerValue?: string | string[] | null) {
-  if (!headerValue || Array.isArray(headerValue)) return null;
-  if (!headerValue.startsWith(APPLE_AUTH_PREFIX)) return null;
-  const token = headerValue.slice(APPLE_AUTH_PREFIX.length).trim();
+  if (!headerValue) return null;
+
+  const rawHeader = Array.isArray(headerValue)
+    ? headerValue.find((value) => typeof value === "string" && value.trim())
+    : headerValue;
+  if (!rawHeader) return null;
+
+  const prefixMatch = rawHeader.match(/^ApplePass\s+(.+)$/i);
+  if (!prefixMatch) return null;
+
+  let token = prefixMatch[1].trim();
+  if (
+    (token.startsWith('"') && token.endsWith('"')) ||
+    (token.startsWith("'") && token.endsWith("'"))
+  ) {
+    token = token.slice(1, -1).trim();
+  }
+
   return token || null;
 }
 

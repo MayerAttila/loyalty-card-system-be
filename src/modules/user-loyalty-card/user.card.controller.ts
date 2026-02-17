@@ -592,10 +592,6 @@ export const listAppleWalletPassesForDevice = async (
     return res.status(404).json({ message: "pass type not found" });
   }
 
-  if (!isAuthorizedAppleWalletRequest(req.headers.authorization)) {
-    return res.status(401).json({ message: "unauthorized" });
-  }
-
   const payload = listAppleWalletSerialNumbers({
     deviceLibraryIdentifier,
     passTypeIdentifier,
