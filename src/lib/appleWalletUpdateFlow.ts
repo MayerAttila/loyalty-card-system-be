@@ -36,6 +36,8 @@ function normalizeHttpsUrl(value: string) {
     if (parsed.protocol !== "https:") {
       return null;
     }
+    const cleanPath = parsed.pathname.replace(/\/+$/, "").replace(/\/v1$/i, "");
+    parsed.pathname = cleanPath || "/";
     return trimTrailingSlash(parsed.toString());
   } catch {
     return null;
@@ -82,7 +84,7 @@ function getConfiguredWebServiceBaseUrl() {
     return null;
   }
 
-  return `${normalizedAppBaseUrl}/user-loyalty-card/apple-wallet/v1`;
+  return `${normalizedAppBaseUrl}/user-loyalty-card/apple-wallet`;
 }
 
 function parseUpdatedSince(value: unknown) {

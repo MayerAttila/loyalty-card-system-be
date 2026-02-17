@@ -34,6 +34,8 @@ const normalizeHttpsUrl = (value: string | null | undefined) => {
   try {
     const parsed = new URL(trimmed);
     if (parsed.protocol !== "https:") return null;
+    const cleanPath = parsed.pathname.replace(/\/+$/, "").replace(/\/v1$/i, "");
+    parsed.pathname = cleanPath || "/";
     return trimTrailingSlash(parsed.toString());
   } catch {
     return null;
@@ -99,7 +101,7 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
     req && req.get("host") ? `${req.protocol}://${req.get("host")}` : null;
   const requestWebServiceUrl = requestBaseUrl
     ? normalizeHttpsUrl(
-        `${trimTrailingSlash(requestBaseUrl)}/user-loyalty-card/apple-wallet/v1`,
+        `${trimTrailingSlash(requestBaseUrl)}/user-loyalty-card/apple-wallet`,
       )
     : null;
   const webServiceUrl =
