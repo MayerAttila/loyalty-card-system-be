@@ -420,10 +420,17 @@ export const getGoogleWalletSaveLink = async (req: Request, res: Response) => {
     );
     if (!classUpdateRes.ok) {
       const updateText = await classUpdateRes.text();
-      console.warn("[wallet] class programName update failed", {
-        status: classUpdateRes.status,
-        details: updateText,
-      });
+      const approvedStatusMessage =
+        "Invalid review status Optional[APPROVED]";
+      const isExpectedApprovedClassError =
+        classUpdateRes.status === 400 &&
+        updateText.includes(approvedStatusMessage);
+      if (!isExpectedApprovedClassError) {
+        console.warn("[wallet] class programName update failed", {
+          status: classUpdateRes.status,
+          details: updateText,
+        });
+      }
     }
   } catch (error) {
     console.warn("[wallet] class programName update error", error);

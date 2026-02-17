@@ -143,11 +143,16 @@ async function createCustomer(req: Request, res: Response) {
 
   const business = await prisma.business.findUnique({
     where: { id: businessId },
-    select: { id: true },
+    select: { id: true, name: true },
   });
   if (!business) {
     return res.status(404).json({ message: "business not found" });
   }
+
+  const businessLogo = await prisma.image.findFirst({
+    where: { businessId, kind: "BUSINESS_LOGO" },
+    select: { url: true },
+  });
 
   const existing = await prisma.customer.findUnique({
     where: { email },
@@ -169,12 +174,26 @@ async function createCustomer(req: Request, res: Response) {
   const activeTemplate =
     (await prisma.loyaltyCardTemplate.findFirst({
       where: { businessId, isActive: true },
-      select: { id: true },
+      select: {
+        id: true,
+        template: true,
+        text1: true,
+        text2: true,
+        maxPoints: true,
+        cardColor: true,
+      },
     })) ??
     (await prisma.loyaltyCardTemplate.findFirst({
       where: { businessId },
       orderBy: { createdAt: "desc" },
-      select: { id: true },
+      select: {
+        id: true,
+        template: true,
+        text1: true,
+        text2: true,
+        maxPoints: true,
+        cardColor: true,
+      },
     }));
 
   if (activeTemplate) {
@@ -216,6 +235,15 @@ async function createCustomer(req: Request, res: Response) {
   res.status(existing ? 200 : 201).json({
     customer,
     cardId: loyaltyCardId,
+    cardPreview: activeTemplate
+      ? {
+          issuerName: activeTemplate.text1 ?? business.name,
+          programName: activeTemplate.text2 ?? activeTemplate.template,
+          maxPoints: activeTemplate.maxPoints,
+          cardColor: activeTemplate.cardColor,
+          logoUrl: businessLogo?.url ?? null,
+        }
+      : null,
   });
 }
 
