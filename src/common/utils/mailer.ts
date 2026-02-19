@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { buildEmployeeInviteEmail } from "../emails/employeeInvite.js";
 import { buildBusinessWelcomeEmail } from "../emails/businessWelcome.js";
 import { buildSubscriptionUpdateEmail } from "../emails/subscriptionUpdate.js";
+import { buildContactMessageEmail } from "../emails/contactMessage.js";
 
 type InviteEmailParams = {
   to: string;
@@ -23,6 +24,13 @@ type SubscriptionUpdateEmailParams = {
   detailLabel: string;
   detailValue: string;
   dashboardUrl: string;
+};
+
+type ContactMessageEmailParams = {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
 };
 
 const resolveTransporter = () => {
@@ -124,5 +132,33 @@ export const sendSubscriptionUpdateEmail = async ({
     subject,
     text,
     html,
+  });
+};
+
+export const sendContactMessageEmail = async ({
+  name,
+  email,
+  subject,
+  message,
+}: ContactMessageEmailParams) => {
+  const from = process.env.SMTP_FROM;
+  if (!from) {
+    throw new Error("SMTP_FROM is not configured");
+  }
+
+  const to = process.env.CONTACT_EMAIL_TO ?? "contactloyale@gmail.com";
+  const transporter = resolveTransporter();
+  const payload = buildContactMessageEmail({
+    name,
+    email,
+    subject,
+    message,
+  });
+
+  await transporter.sendMail({
+    from,
+    to,
+    replyTo: email,
+    ...payload,
   });
 };
