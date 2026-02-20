@@ -79,11 +79,7 @@ function getConfiguredApplePassTypeIdentifier() {
 }
 
 function getConfiguredAppleAuthToken() {
-  return (
-    process.env.APPLE_WALLET_AUTH_TOKEN?.trim() ??
-    process.env.AUTH_SECRET?.trim() ??
-    ""
-  );
+  return process.env.APPLE_WALLET_AUTH_TOKEN?.trim() ?? "";
 }
 
 function getConfiguredWebServiceBaseUrl() {

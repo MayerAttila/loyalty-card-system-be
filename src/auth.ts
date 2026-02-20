@@ -5,9 +5,62 @@ import { z } from "zod";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "./prisma/client.js";
 
-const authUrl = process.env.AUTH_URL;
-const parsedAuthUrl = authUrl ? new URL(authUrl) : null;
-const configuredCookieDomain = process.env.AUTH_COOKIE_DOMAIN?.trim();
+function normalizeCookieDomain(value: string) {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (trimmed.includes("://") || trimmed.includes("/") || /\s/.test(trimmed)) {
+    return null;
+  }
+
+  const normalized = trimmed.replace(/^\.+/, "");
+  if (!normalized) return null;
+  if (!/^[a-z0-9.-]+$/.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
+}
+
+function parseAuthUrl(value: string | undefined) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed);
+  } catch {
+    throw new Error("[env] AUTH_URL must be a valid URL");
+  }
+}
+
+const parsedAuthUrl = parseAuthUrl(process.env.AUTH_URL);
+const configuredCookieDomainRaw = process.env.AUTH_COOKIE_DOMAIN?.trim() ?? "";
+const configuredCookieDomain = configuredCookieDomainRaw
+  ? normalizeCookieDomain(configuredCookieDomainRaw)
+  : null;
+
+if (configuredCookieDomainRaw && !configuredCookieDomain) {
+  throw new Error(
+    "[env] AUTH_COOKIE_DOMAIN must be a hostname-style domain (for example: .loyale.online)"
+  );
+}
+
+if (
+  configuredCookieDomain &&
+  parsedAuthUrl &&
+  !(
+    parsedAuthUrl.hostname.toLowerCase() === configuredCookieDomain ||
+    parsedAuthUrl.hostname
+      .toLowerCase()
+      .endsWith(`.${configuredCookieDomain}`)
+  )
+) {
+  throw new Error(
+    "[env] AUTH_COOKIE_DOMAIN must match AUTH_URL hostname or its parent domain"
+  );
+}
+
 const cookieDomain =
   configuredCookieDomain && configuredCookieDomain.length > 0
     ? configuredCookieDomain
