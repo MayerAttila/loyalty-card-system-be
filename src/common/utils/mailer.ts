@@ -3,6 +3,7 @@ import { buildEmployeeInviteEmail } from "../emails/employeeInvite.js";
 import { buildBusinessWelcomeEmail } from "../emails/businessWelcome.js";
 import { buildSubscriptionUpdateEmail } from "../emails/subscriptionUpdate.js";
 import { buildContactMessageEmail } from "../emails/contactMessage.js";
+import { buildPasswordResetEmail } from "../emails/passwordReset.js";
 
 type InviteEmailParams = {
   to: string;
@@ -31,6 +32,13 @@ type ContactMessageEmailParams = {
   email: string;
   subject: string;
   message: string;
+};
+
+type PasswordResetEmailParams = {
+  to: string;
+  userName: string;
+  resetUrl: string;
+  expiresInMinutes: number;
 };
 
 const resolveTransporter = () => {
@@ -160,5 +168,32 @@ export const sendContactMessageEmail = async ({
     to,
     replyTo: email,
     ...payload,
+  });
+};
+
+export const sendPasswordResetEmail = async ({
+  to,
+  userName,
+  resetUrl,
+  expiresInMinutes,
+}: PasswordResetEmailParams) => {
+  const from = process.env.SMTP_FROM;
+  if (!from) {
+    throw new Error("SMTP_FROM is not configured");
+  }
+
+  const transporter = resolveTransporter();
+  const { subject, text, html } = buildPasswordResetEmail({
+    userName,
+    resetUrl,
+    expiresInMinutes,
+  });
+
+  await transporter.sendMail({
+    from,
+    to,
+    subject,
+    text,
+    html,
   });
 };

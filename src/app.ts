@@ -13,6 +13,7 @@ import { stampingLogRouter } from "./modules/stamping-log/stamping-log.router.js
 import { subscriptionRouter } from "./modules/subscription/subscription.router.js";
 import { subscriptionController } from "./modules/subscription/subscription.controller.js";
 import { supportRouter } from "./modules/support/support.router.js";
+import { passwordResetRouter } from "./modules/password-reset/password-reset.router.js";
 import { env } from "./config/env.js";
 
 const corsOrigins = env.CORS_ORIGIN.split(",")
@@ -59,5 +60,6 @@ app.use("/user-loyalty-card", userCardRouter);
 app.use("/stamping-log", stampingLogRouter);
 app.use("/subscription", subscriptionRouter);
 app.use("/support", supportRouter);
+app.use("/password-reset", passwordResetRouter);
 
 app.use(errorMiddleware);
