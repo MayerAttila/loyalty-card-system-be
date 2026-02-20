@@ -547,10 +547,19 @@ export const registerAppleWalletPass = async (req: Request, res: Response) => {
     return res.status(401).json({ message: "unauthorized" });
   }
 
-  const result = registerAppleWalletDevice({
+  const card = await prisma.customerLoyaltyCard.findUnique({
+    where: { id: serialNumber },
+    select: { id: true },
+  });
+  if (!card) {
+    return res.status(404).json({ message: "card not found" });
+  }
+
+  const result = await registerAppleWalletDevice({
     deviceLibraryIdentifier,
     passTypeIdentifier,
     serialNumber,
+    cardId: card.id,
     pushToken,
   });
 
@@ -576,7 +585,7 @@ export const unregisterAppleWalletPass = async (
     return res.status(401).json({ message: "unauthorized" });
   }
 
-  unregisterAppleWalletDevice({
+  await unregisterAppleWalletDevice({
     deviceLibraryIdentifier,
     passTypeIdentifier,
     serialNumber,
@@ -599,7 +608,7 @@ export const listAppleWalletPassesForDevice = async (
     return res.status(404).json({ message: "pass type not found" });
   }
 
-  const payload = listAppleWalletSerialNumbers({
+  const payload = await listAppleWalletSerialNumbers({
     deviceLibraryIdentifier,
     passTypeIdentifier,
     passesUpdatedSince:
@@ -636,7 +645,10 @@ export const getAppleWalletPassBySerial = async (
     }
 
     const ifModifiedSince = req.headers["if-modified-since"];
-    const serialUpdatedAt = getAppleWalletSerialLastUpdated(serialNumber);
+    const serialUpdatedAt = await getAppleWalletSerialLastUpdated({
+      passTypeIdentifier,
+      serialNumber,
+    });
     if (
       typeof ifModifiedSince === "string" &&
       serialUpdatedAt &&
@@ -868,6 +880,7 @@ export const stampCard = async (req: Request, res: Response) => {
     void notifyAppleWalletPassUpdated({
       passTypeIdentifier: applePassTypeIdentifier,
       serialNumber: card.id,
+      cardId: card.id,
     });
   }
 

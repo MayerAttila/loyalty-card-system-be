@@ -1,27 +1,10 @@
 import http2 from "node:http2";
 import { createSign } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
-
-type Registration = {
-  deviceLibraryIdentifier: string;
-  passTypeIdentifier: string;
-  serialNumber: string;
-  pushToken: string;
-  updatedAt: number;
-};
-
-const registrations = new Map<string, Registration>();
-const serialUpdatedAt = new Map<string, number>();
+import { Prisma } from "@prisma/client";
+import { prisma } from "../prisma/client.js";
 
 const APPLE_AUTH_PREFIX = "ApplePass ";
-
-function registrationKey(registration: {
-  deviceLibraryIdentifier: string;
-  passTypeIdentifier: string;
-  serialNumber: string;
-}) {
-  return `${registration.deviceLibraryIdentifier}:${registration.passTypeIdentifier}:${registration.serialNumber}`;
-}
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -60,10 +43,10 @@ function parseAppleAuthHeader(headerValue?: string | string[] | null) {
     : headerValue;
   if (!rawHeader) return null;
 
-  const prefixMatch = rawHeader.match(/^ApplePass\s+(.+)$/i);
-  if (!prefixMatch) return null;
-
-  let token = prefixMatch[1].trim();
+  if (!rawHeader.toLowerCase().startsWith(APPLE_AUTH_PREFIX.toLowerCase())) {
+    return null;
+  }
+  let token = rawHeader.slice(APPLE_AUTH_PREFIX.length).trim();
   if (
     (token.startsWith('"') && token.endsWith('"')) ||
     (token.startsWith("'") && token.endsWith("'"))
@@ -233,66 +216,210 @@ export function isAuthorizedAppleWalletRequest(
   return !!receivedToken && receivedToken === expectedToken;
 }
 
-export function registerAppleWalletDevice(params: {
+type TimestampValue = Date | string;
+type ExistsRow = { exists: number };
+type RegistrationRow = { serialNumber: string; updatedAt: TimestampValue };
+type SerialUpdateRow = { serialNumber: string; updatedAt: TimestampValue };
+type UpdatedAtRow = { updatedAt: TimestampValue };
+type PushTokenRow = { pushToken: string };
+type ParsedApnsError = { statusCode: number; reason: string | null };
+
+function toDate(value: TimestampValue) {
+  return value instanceof Date ? value : new Date(value);
+}
+
+function parseApnsError(value: unknown): ParsedApnsError {
+  const message = value instanceof Error ? value.message : String(value);
+  const match = message.match(/APNs push failed \((\d+)\):\s*(.*)$/s);
+  if (!match) {
+    return { statusCode: 0, reason: null };
+  }
+
+  const statusCode = Number(match[1] ?? 0);
+  const rawBody = (match[2] ?? "").trim();
+  if (!rawBody) {
+    return { statusCode, reason: null };
+  }
+
+  try {
+    const parsed = JSON.parse(rawBody) as { reason?: unknown };
+    return {
+      statusCode,
+      reason: typeof parsed.reason === "string" ? parsed.reason : null,
+    };
+  } catch {
+    return { statusCode, reason: null };
+  }
+}
+
+export async function registerAppleWalletDevice(params: {
   deviceLibraryIdentifier: string;
   passTypeIdentifier: string;
   serialNumber: string;
+  cardId: string;
   pushToken: string;
 }) {
-  const key = registrationKey(params);
-  const now = Date.now();
-  const exists = registrations.has(key);
-  registrations.set(key, {
-    ...params,
-    updatedAt: now,
+  return prisma.$transaction(async (tx) => {
+    const existing = await tx.$queryRaw<ExistsRow[]>`
+      SELECT 1 AS "exists"
+      FROM "AppleWalletRegistration"
+      WHERE "deviceLibraryIdentifier" = ${params.deviceLibraryIdentifier}
+        AND "passTypeIdentifier" = ${params.passTypeIdentifier}
+        AND "serialNumber" = ${params.serialNumber}
+      LIMIT 1
+    `;
+    const now = new Date();
+
+    if (existing.length > 0) {
+      await tx.$executeRaw`
+        UPDATE "AppleWalletRegistration"
+        SET "pushToken" = ${params.pushToken},
+            "cardId" = ${params.cardId},
+            "updatedAt" = ${now}
+        WHERE "deviceLibraryIdentifier" = ${params.deviceLibraryIdentifier}
+          AND "passTypeIdentifier" = ${params.passTypeIdentifier}
+          AND "serialNumber" = ${params.serialNumber}
+      `;
+      return { created: false };
+    }
+
+    await tx.$executeRaw`
+      INSERT INTO "AppleWalletRegistration" (
+        "deviceLibraryIdentifier",
+        "passTypeIdentifier",
+        "serialNumber",
+        "cardId",
+        "pushToken",
+        "updatedAt"
+      )
+      VALUES (
+        ${params.deviceLibraryIdentifier},
+        ${params.passTypeIdentifier},
+        ${params.serialNumber},
+        ${params.cardId},
+        ${params.pushToken},
+        ${now}
+      )
+    `;
+
+    const serialUpdate = await tx.$queryRaw<ExistsRow[]>`
+      SELECT 1 AS "exists"
+      FROM "AppleWalletSerialUpdate"
+      WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+        AND "serialNumber" = ${params.serialNumber}
+      LIMIT 1
+    `;
+    if (serialUpdate.length === 0) {
+      await tx.$executeRaw`
+        INSERT INTO "AppleWalletSerialUpdate" (
+          "passTypeIdentifier",
+          "serialNumber",
+          "cardId",
+          "updatedAt"
+        )
+        VALUES (
+          ${params.passTypeIdentifier},
+          ${params.serialNumber},
+          ${params.cardId},
+          ${now}
+        )
+      `;
+    } else {
+      await tx.$executeRaw`
+        UPDATE "AppleWalletSerialUpdate"
+        SET "cardId" = ${params.cardId}
+        WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+          AND "serialNumber" = ${params.serialNumber}
+          AND "cardId" <> ${params.cardId}
+      `;
+    }
+
+    return { created: true };
   });
-  if (!serialUpdatedAt.has(params.serialNumber)) {
-    serialUpdatedAt.set(params.serialNumber, now);
-  }
-  return { created: !exists };
 }
 
-export function unregisterAppleWalletDevice(params: {
+export async function unregisterAppleWalletDevice(params: {
   deviceLibraryIdentifier: string;
   passTypeIdentifier: string;
   serialNumber: string;
 }) {
-  const key = registrationKey(params);
-  return registrations.delete(key);
+  const deletedCount = await prisma.$executeRaw`
+    DELETE FROM "AppleWalletRegistration"
+    WHERE "deviceLibraryIdentifier" = ${params.deviceLibraryIdentifier}
+      AND "passTypeIdentifier" = ${params.passTypeIdentifier}
+      AND "serialNumber" = ${params.serialNumber}
+  `;
+
+  return deletedCount > 0;
 }
 
-export function listAppleWalletSerialNumbers(params: {
+export async function listAppleWalletSerialNumbers(params: {
   deviceLibraryIdentifier: string;
   passTypeIdentifier: string;
   passesUpdatedSince?: string | null;
 }) {
   const since = parseUpdatedSince(params.passesUpdatedSince ?? null);
-  const serialNumbers: string[] = [];
-  let lastUpdated = 0;
+  const registrations = await prisma.$queryRaw<RegistrationRow[]>`
+    SELECT "serialNumber", "updatedAt"
+    FROM "AppleWalletRegistration"
+    WHERE "deviceLibraryIdentifier" = ${params.deviceLibraryIdentifier}
+      AND "passTypeIdentifier" = ${params.passTypeIdentifier}
+  `;
 
-  for (const registration of registrations.values()) {
-    if (
-      registration.deviceLibraryIdentifier !== params.deviceLibraryIdentifier ||
-      registration.passTypeIdentifier !== params.passTypeIdentifier
-    ) {
-      continue;
-    }
+  if (!registrations.length) {
+    return {
+      serialNumbers: [] as string[],
+      lastUpdated: new Date().toISOString(),
+    };
+  }
 
-    const serialUpdateTime =
-      serialUpdatedAt.get(registration.serialNumber) ?? registration.updatedAt;
-    if (since !== null && serialUpdateTime <= since) {
-      continue;
-    }
-
-    serialNumbers.push(registration.serialNumber);
-    if (serialUpdateTime > lastUpdated) {
-      lastUpdated = serialUpdateTime;
+  const serialFallbackUpdatedAt = new Map<string, number>();
+  for (const registration of registrations) {
+    const updatedAtMs = toDate(registration.updatedAt).getTime();
+    const existing = serialFallbackUpdatedAt.get(registration.serialNumber);
+    if (existing === undefined || updatedAtMs > existing) {
+      serialFallbackUpdatedAt.set(registration.serialNumber, updatedAtMs);
     }
   }
 
-  const uniqueSerials = Array.from(new Set(serialNumbers));
+  const serialNumbers = Array.from(serialFallbackUpdatedAt.keys());
+  const serialUpdates =
+    serialNumbers.length > 0
+      ? await prisma.$queryRaw<SerialUpdateRow[]>(
+          Prisma.sql`
+            SELECT "serialNumber", "updatedAt"
+            FROM "AppleWalletSerialUpdate"
+            WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+              AND "serialNumber" IN (${Prisma.join(serialNumbers)})
+          `,
+        )
+      : [];
+
+  const serialUpdatedAt = new Map<string, number>(
+    serialUpdates.map((serialUpdate) => [
+      serialUpdate.serialNumber,
+      toDate(serialUpdate.updatedAt).getTime(),
+    ]),
+  );
+
+  const filteredSerialNumbers: string[] = [];
+  let lastUpdated = 0;
+  for (const serialNumber of serialNumbers) {
+    const updatedAt =
+      serialUpdatedAt.get(serialNumber) ??
+      serialFallbackUpdatedAt.get(serialNumber) ??
+      0;
+    if (since !== null && updatedAt <= since) {
+      continue;
+    }
+    filteredSerialNumbers.push(serialNumber);
+    if (updatedAt > lastUpdated) {
+      lastUpdated = updatedAt;
+    }
+  }
+
   return {
-    serialNumbers: uniqueSerials,
+    serialNumbers: filteredSerialNumbers,
     lastUpdated:
       lastUpdated > 0
         ? new Date(lastUpdated).toISOString()
@@ -300,28 +427,71 @@ export function listAppleWalletSerialNumbers(params: {
   };
 }
 
-export function getAppleWalletSerialLastUpdated(serialNumber: string) {
-  const updated = serialUpdatedAt.get(serialNumber);
-  return updated ? new Date(updated) : null;
+export async function getAppleWalletSerialLastUpdated(params: {
+  passTypeIdentifier: string;
+  serialNumber: string;
+}) {
+  const serialUpdate = await prisma.$queryRaw<UpdatedAtRow[]>`
+    SELECT "updatedAt"
+    FROM "AppleWalletSerialUpdate"
+    WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+      AND "serialNumber" = ${params.serialNumber}
+    LIMIT 1
+  `;
+  if (serialUpdate.length > 0) {
+    return toDate(serialUpdate[0].updatedAt);
+  }
+
+  const latestRegistration = await prisma.$queryRaw<UpdatedAtRow[]>`
+    SELECT "updatedAt"
+    FROM "AppleWalletRegistration"
+    WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+      AND "serialNumber" = ${params.serialNumber}
+    ORDER BY "updatedAt" DESC
+    LIMIT 1
+  `;
+
+  return latestRegistration.length > 0
+    ? toDate(latestRegistration[0].updatedAt)
+    : null;
 }
 
 export async function notifyAppleWalletPassUpdated(params: {
   passTypeIdentifier: string;
   serialNumber: string;
+  cardId: string;
 }) {
-  const now = Date.now();
-  serialUpdatedAt.set(params.serialNumber, now);
+  const now = new Date();
+  await prisma.$executeRaw`
+    INSERT INTO "AppleWalletSerialUpdate" (
+      "passTypeIdentifier",
+      "serialNumber",
+      "cardId",
+      "updatedAt"
+    )
+    VALUES (
+      ${params.passTypeIdentifier},
+      ${params.serialNumber},
+      ${params.cardId},
+      ${now}
+    )
+    ON CONFLICT ("passTypeIdentifier", "serialNumber")
+    DO UPDATE
+    SET "updatedAt" = EXCLUDED."updatedAt",
+        "cardId" = EXCLUDED."cardId"
+  `;
 
-  const pushTokens = new Set<string>();
-  for (const registration of registrations.values()) {
-    if (
-      registration.passTypeIdentifier === params.passTypeIdentifier &&
-      registration.serialNumber === params.serialNumber
-    ) {
-      pushTokens.add(registration.pushToken);
-      registration.updatedAt = now;
-    }
-  }
+  const registrations = await prisma.$queryRaw<PushTokenRow[]>`
+    SELECT "pushToken"
+    FROM "AppleWalletRegistration"
+    WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+      AND "serialNumber" = ${params.serialNumber}
+  `;
+  const pushTokens = new Set<string>(
+    registrations
+      .map((registration) => registration.pushToken)
+      .filter((token) => typeof token === "string" && token.length > 0),
+  );
 
   if (!pushTokens.size) return;
 
@@ -334,20 +504,43 @@ export async function notifyAppleWalletPassUpdated(params: {
   }
 
   const bearerToken = getApnsJwt(apnsConfig);
+  const pushTokenList = Array.from(pushTokens);
   const pushResults = await Promise.allSettled(
-    Array.from(pushTokens).map((pushToken) =>
+    pushTokenList.map((pushToken) =>
       sendApnsPush({
         host: apnsConfig.host,
         topic: apnsConfig.topic,
         bearerToken,
         pushToken,
-      })
-    )
+      }),
+    ),
   );
 
-  for (const result of pushResults) {
+  const invalidPushTokens: string[] = [];
+  for (const [index, result] of pushResults.entries()) {
     if (result.status === "rejected") {
+      const parsedError = parseApnsError(result.reason);
+      const shouldDeleteToken =
+        parsedError.reason === "Unregistered" ||
+        parsedError.reason === "BadDeviceToken" ||
+        parsedError.reason === "DeviceTokenNotForTopic" ||
+        parsedError.statusCode === 410;
+      if (shouldDeleteToken) {
+        invalidPushTokens.push(pushTokenList[index] ?? "");
+      }
       console.warn("[apple-wallet] APNs push failed", result.reason);
     }
+  }
+
+  const cleanupTokens = invalidPushTokens.filter((token) => token.length > 0);
+  if (cleanupTokens.length > 0) {
+    await prisma.$executeRaw(
+      Prisma.sql`
+        DELETE FROM "AppleWalletRegistration"
+        WHERE "passTypeIdentifier" = ${params.passTypeIdentifier}
+          AND "serialNumber" = ${params.serialNumber}
+          AND "pushToken" IN (${Prisma.join(cleanupTokens)})
+      `,
+    );
   }
 }
