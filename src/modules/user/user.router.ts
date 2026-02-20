@@ -33,6 +33,13 @@ userRoutes.patch(
   requireRoles("OWNER", "ADMIN", "STAFF"),
   userControllers.updateUserProfile
 );
+userRoutes.patch(
+  "/id/:id/password",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN", "STAFF"),
+  userControllers.changeUserPassword
+);
 userRoutes.post(
   "/invite",
   requireSession,

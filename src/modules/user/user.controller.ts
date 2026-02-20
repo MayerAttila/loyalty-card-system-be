@@ -316,6 +316,66 @@ export const updateUserProfile = async (req: Request, res: Response) => {
   }
 };
 
+export const changeUserPassword = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { currentPassword, newPassword } = req.body as {
+    currentPassword?: string;
+    newPassword?: string;
+  };
+  const actor = req.authUser;
+
+  if (!actor?.id || actor.id !== id) {
+    return res.status(403).json({ message: "forbidden password access" });
+  }
+
+  if (!currentPassword || typeof currentPassword !== "string") {
+    return res.status(400).json({ message: "currentPassword is required" });
+  }
+  if (!newPassword || typeof newPassword !== "string") {
+    return res.status(400).json({ message: "newPassword is required" });
+  }
+
+  const passwordRuleError = getPasswordRuleError(newPassword);
+  if (passwordRuleError) {
+    return res.status(400).json({ message: passwordRuleError });
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id },
+    select: { id: true, businessId: true, password: true },
+  });
+
+  if (!existing || existing.businessId !== actor.businessId) {
+    return res.status(404).json({ message: "user not found" });
+  }
+
+  if (!existing.password) {
+    return res
+      .status(400)
+      .json({ message: "This account does not support password updates." });
+  }
+
+  const isCurrentValid = await bcrypt.compare(currentPassword, existing.password);
+  if (!isCurrentValid) {
+    return res.status(400).json({ message: "Current password is incorrect." });
+  }
+
+  const isSameAsCurrent = await bcrypt.compare(newPassword, existing.password);
+  if (isSameAsCurrent) {
+    return res.status(400).json({
+      message: "New password must be different from current password.",
+    });
+  }
+
+  const hashedPassword = await bcrypt.hash(newPassword, 10);
+  await prisma.user.update({
+    where: { id },
+    data: { password: hashedPassword },
+  });
+
+  res.json({ message: "Password updated." });
+};
+
 export const sendEmployeeInvite = async (req: Request, res: Response) => {
   const { email, businessId } = req.body as {
     email?: string;
@@ -378,5 +438,6 @@ export const userControllers = {
   updateUserRole,
   deleteUser,
   updateUserProfile,
+  changeUserPassword,
   sendEmployeeInvite,
 };
