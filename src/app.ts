@@ -15,6 +15,7 @@ import { subscriptionController } from "./modules/subscription/subscription.cont
 import { supportRouter } from "./modules/support/support.router.js";
 import { passwordResetRouter } from "./modules/password-reset/password-reset.router.js";
 import { env } from "./config/env.js";
+import { notificationRouter } from "./modules/notification/notification.router.js";
 
 const corsOrigins = env.CORS_ORIGIN.split(",")
   .map((origin: string) => origin.trim())
@@ -61,5 +62,6 @@ app.use("/stamping-log", stampingLogRouter);
 app.use("/subscription", subscriptionRouter);
 app.use("/support", supportRouter);
 app.use("/password-reset", passwordResetRouter);
+app.use("/notification", notificationRouter);
 
 app.use(errorMiddleware);
