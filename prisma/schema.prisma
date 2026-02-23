@@ -26,6 +26,7 @@ model User {
   sessions      Session[]
   stampingLogs StampingLog[]
   passwordResetTokens PasswordResetToken[]
+  notificationsCreated Notification[]
 }
 
 
@@ -99,6 +100,8 @@ model Business {
   employees    User[]
   images       Image[]
   customers    Customer[]
+  notifications Notification[]
+  notificationLogs NotificationLog[]
 }
 
 model Trial {
@@ -130,6 +133,48 @@ enum ImageKind {
   BUSINESS_LOGO
   STAMP_ON
   STAMP_OFF
+}
+
+enum NotificationStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum NotificationDeliveryMode {
+  NOW
+  SCHEDULED
+}
+
+enum NotificationScheduleType {
+  ONCE
+  REPEAT
+}
+
+enum NotificationWeekday {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum NotificationTriggerType {
+  MANUAL_NOW
+  SCHEDULED
+}
+
+enum NotificationChannel {
+  APPLE_WALLET
+  GOOGLE_WALLET
+}
+
+enum NotificationLogStatus {
+  QUEUED
+  SENT
+  FAILED
+  SKIPPED
 }
 
 model Image {
@@ -193,8 +238,62 @@ model CustomerLoyaltyCard {
   customerLoyaltyCardCycles CustomerLoyaltyCardCycle[]
   appleWalletRegistrations AppleWalletRegistration[]
   appleWalletSerialUpdates AppleWalletSerialUpdate[]
+  notificationLogs NotificationLog[]
 
   @@unique([customerId, loyaltyCardTemplateId])
+}
+
+model Notification {
+  id              String                 @id @default(uuid())
+  businessId      String
+  business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  createdById     String
+  createdBy       User                   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  title           String
+  message         String
+  status          NotificationStatus     @default(ACTIVE)
+  deliveryMode    NotificationDeliveryMode
+  scheduleType    NotificationScheduleType @default(ONCE)
+  scheduledAtUtc  DateTime?
+  repeatDays      NotificationWeekday[]
+  repeatTimeLocal String?
+  timezone        String                 @default("UTC")
+  nextRunAtUtc    DateTime?
+  lastRunAtUtc    DateTime?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+  logs            NotificationLog[]
+
+  @@index([businessId, status, nextRunAtUtc])
+  @@index([businessId, createdAt])
+  @@index([createdById, createdAt])
+}
+
+model NotificationLog {
+  id                  String               @id @default(uuid())
+  notificationId      String
+  notification        Notification         @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  businessId          String
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  customerLoyaltyCardId String
+  customerLoyaltyCard CustomerLoyaltyCard  @relation(fields: [customerLoyaltyCardId], references: [id], onDelete: Cascade)
+  executionId         String
+  triggerType         NotificationTriggerType
+  channel             NotificationChannel
+  status              NotificationLogStatus @default(QUEUED)
+  scheduledForUtc     DateTime?
+  attemptedAt         DateTime?
+  providerMessageId   String?
+  errorCode           String?
+  errorMessage        String?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+
+  @@unique([executionId, customerLoyaltyCardId, channel])
+  @@index([notificationId, createdAt])
+  @@index([executionId, createdAt])
+  @@index([businessId, status, createdAt])
+  @@index([customerLoyaltyCardId, createdAt])
 }
 
 model CustomerLoyaltyCardCycle {
