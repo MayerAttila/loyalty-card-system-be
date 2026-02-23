@@ -1,6 +1,18 @@
 import type { Request, Response } from "express";
 import { prisma } from "../../prisma/client.js";
 
+const loyaltyCardTemplatePreviewSelect = {
+  id: true,
+  template: true,
+  text1: true,
+  text2: true,
+  maxPoints: true,
+  cardColor: true,
+  useStampImages: true,
+  stampOnImageId: true,
+  stampOffImageId: true,
+} as const;
+
 async function getAllCustomer(req: Request, res: Response) {
   const businessId = req.authUser?.businessId;
   if (!businessId) {
@@ -174,27 +186,36 @@ async function createCustomer(req: Request, res: Response) {
   const activeTemplate =
     (await prisma.loyaltyCardTemplate.findFirst({
       where: { businessId, isActive: true },
-      select: {
-        id: true,
-        template: true,
-        text1: true,
-        text2: true,
-        maxPoints: true,
-        cardColor: true,
-      },
+      select: loyaltyCardTemplatePreviewSelect,
     })) ??
     (await prisma.loyaltyCardTemplate.findFirst({
       where: { businessId },
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        template: true,
-        text1: true,
-        text2: true,
-        maxPoints: true,
-        cardColor: true,
-      },
+      select: loyaltyCardTemplatePreviewSelect,
     }));
+
+  let stampOnUrl: string | null = null;
+  let stampOffUrl: string | null = null;
+
+  if (
+    activeTemplate?.useStampImages &&
+    activeTemplate.stampOnImageId &&
+    activeTemplate.stampOffImageId
+  ) {
+    const [stampOnImage, stampOffImage] = await Promise.all([
+      prisma.image.findUnique({
+        where: { id: activeTemplate.stampOnImageId },
+        select: { url: true },
+      }),
+      prisma.image.findUnique({
+        where: { id: activeTemplate.stampOffImageId },
+        select: { url: true },
+      }),
+    ]);
+
+    stampOnUrl = stampOnImage?.url ?? null;
+    stampOffUrl = stampOffImage?.url ?? null;
+  }
 
   if (activeTemplate) {
     try {
@@ -242,6 +263,10 @@ async function createCustomer(req: Request, res: Response) {
           maxPoints: activeTemplate.maxPoints,
           cardColor: activeTemplate.cardColor,
           logoUrl: businessLogo?.url ?? null,
+          useStampImages:
+            activeTemplate.useStampImages && Boolean(stampOnUrl && stampOffUrl),
+          filledStampSrc: stampOnUrl,
+          emptyStampSrc: stampOffUrl,
         }
       : null,
   });
