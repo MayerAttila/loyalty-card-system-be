@@ -52,6 +52,14 @@ notificationRouter.patch(
   notificationController.updateNotificationStatus
 );
 
+notificationRouter.post(
+  "/id/:id/send-now",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN"),
+  notificationController.sendNotificationNow
+);
+
 notificationRouter.delete(
   "/id/:id",
   requireSession,

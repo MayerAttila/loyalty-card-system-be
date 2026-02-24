@@ -1,13 +1,24 @@
+import { randomUUID } from "node:crypto";
 import type { Request, Response } from "express";
 import {
+  NotificationChannel,
   NotificationDeliveryMode,
+  NotificationLogStatus,
   NotificationRepeatPattern,
   NotificationScheduleType,
   NotificationStatus,
+  NotificationTriggerType,
   NotificationWeekday,
   type Notification,
 } from "@prisma/client";
 import { prisma } from "../../prisma/client.js";
+import { notifyAppleWalletPassUpdated } from "../../lib/appleWalletUpdateFlow.js";
+import { walletRequest } from "../../lib/googleWallet.js";
+import { getStampHeroImageUrl } from "../../lib/stampHeroImage.js";
+import {
+  buildStampImageModule,
+  buildStampTextModules,
+} from "../../lib/walletPassStructure.js";
 
 const MAX_TITLE_LENGTH = 160;
 const MAX_MESSAGE_LENGTH = 500;
@@ -290,6 +301,25 @@ type NotificationWithMeta = Notification & {
   };
 };
 
+type CardDeliveryTarget = {
+  id: string;
+  googleWalletObjectId: string | null;
+  customer: {
+    email: string;
+  };
+  template: {
+    id: string;
+    maxPoints: number;
+  };
+  customerLoyaltyCardCycles: Array<{
+    stampCount: number;
+    cycleNumber: number;
+  }>;
+  appleWalletRegistrations: Array<{
+    passTypeIdentifier: string;
+  }>;
+};
+
 function serializeNotification(notification: NotificationWithMeta) {
   return {
     id: notification.id,
@@ -541,6 +571,330 @@ async function deleteNotification(req: Request, res: Response) {
   return res.status(200).json({ id: scoped.notification.id, deleted: true });
 }
 
+const trimTo = (value: string, maxLength: number) => {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+};
+
+function parseApnsFailure(error: unknown) {
+  const message =
+    error instanceof Error ? error.message : String(error ?? "unknown error");
+  const match = message.match(/APNs push failed \((\d+)\):\s*(.*)$/s);
+  if (!match) {
+    return { errorCode: null as string | null, errorMessage: trimTo(message, 500) };
+  }
+  const statusCode = match[1] ?? "";
+  const rawBody = (match[2] ?? "").trim();
+  let reason = rawBody;
+  try {
+    const parsed = JSON.parse(rawBody) as { reason?: unknown };
+    if (typeof parsed.reason === "string" && parsed.reason.trim()) {
+      reason = parsed.reason.trim();
+    }
+  } catch {
+    // Keep raw response body if not JSON.
+  }
+
+  return {
+    errorCode: statusCode || null,
+    errorMessage: trimTo(reason || message, 500),
+  };
+}
+
+function parseGoogleWalletFailure(status: number, details: string) {
+  let message = details.trim();
+  try {
+    const parsed = JSON.parse(details) as {
+      error?: { message?: unknown };
+    };
+    if (typeof parsed.error?.message === "string" && parsed.error.message.trim()) {
+      message = parsed.error.message.trim();
+    }
+  } catch {
+    // Keep raw details.
+  }
+
+  return {
+    errorCode: status > 0 ? String(status) : null,
+    errorMessage: trimTo(message || `Google Wallet update failed (${status})`, 500),
+  };
+}
+
+async function createNotificationLog(params: {
+  notificationId: string;
+  businessId: string;
+  customerLoyaltyCardId: string;
+  executionId: string;
+  triggerType: NotificationTriggerType;
+  channel: NotificationChannel;
+  scheduledForUtc: Date | null;
+}) {
+  return prisma.notificationLog.create({
+    data: {
+      notificationId: params.notificationId,
+      businessId: params.businessId,
+      customerLoyaltyCardId: params.customerLoyaltyCardId,
+      executionId: params.executionId,
+      triggerType: params.triggerType,
+      channel: params.channel,
+      status: NotificationLogStatus.QUEUED,
+      scheduledForUtc: params.scheduledForUtc,
+    },
+  });
+}
+
+async function markNotificationLogResult(params: {
+  logId: string;
+  status: NotificationLogStatus;
+  attemptedAt: Date;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  providerMessageId?: string | null;
+}) {
+  await prisma.notificationLog.update({
+    where: { id: params.logId },
+    data: {
+      status: params.status,
+      attemptedAt: params.attemptedAt,
+      providerMessageId: params.providerMessageId ?? null,
+      errorCode: params.errorCode ?? null,
+      errorMessage: params.errorMessage ?? null,
+    },
+  });
+}
+
+async function sendGoogleWalletNotificationForCard(params: {
+  notification: Notification;
+  card: CardDeliveryTarget;
+}) {
+  if (!params.card.googleWalletObjectId) {
+    return {
+      status: NotificationLogStatus.SKIPPED,
+      errorCode: "NO_GOOGLE_OBJECT",
+      errorMessage: "Google Wallet object not found for card.",
+    } as const;
+  }
+
+  const latestCycle = params.card.customerLoyaltyCardCycles[0];
+  const stampCount = latestCycle?.stampCount ?? 0;
+  const cycleNumber = latestCycle?.cycleNumber ?? 1;
+  const rewardsEarned = Math.max(cycleNumber - 1, 0);
+  const maxPoints = params.card.template.maxPoints;
+  const heroImageUrl = getStampHeroImageUrl(params.card.template.id, stampCount);
+
+  const updateRes = await walletRequest(
+    `/loyaltyObject/${encodeURIComponent(
+      params.card.googleWalletObjectId
+    )}?updateMask=loyaltyPoints,imageModulesData,textModulesData`,
+    {
+      method: "PATCH",
+      body: {
+        loyaltyPoints: {
+          label: "Stamps",
+          balance: {
+            string: `${stampCount}/${maxPoints}`,
+          },
+        },
+        imageModulesData: [buildStampImageModule(heroImageUrl)],
+        textModulesData: [
+          ...buildStampTextModules({
+            stampCount,
+            maxPoints,
+            rewards: rewardsEarned,
+            customerEmail: params.card.customer.email,
+          }),
+          {
+            id: "notification",
+            header: trimTo(params.notification.title, 40),
+            body: trimTo(params.notification.message, 240),
+          },
+        ],
+      },
+    }
+  );
+
+  if (updateRes.ok) {
+    return {
+      status: NotificationLogStatus.SENT,
+      providerMessageId: params.card.googleWalletObjectId,
+    } as const;
+  }
+
+  const details = await updateRes.text();
+  const parsed = parseGoogleWalletFailure(updateRes.status, details);
+  return {
+    status: NotificationLogStatus.FAILED,
+    ...parsed,
+  } as const;
+}
+
+async function sendAppleWalletNotificationForCard(params: {
+  card: CardDeliveryTarget;
+}) {
+  const passTypeIdentifier = process.env.APPLE_WALLET_PASS_TYPE_ID?.trim() ?? "";
+  if (!passTypeIdentifier) {
+    return {
+      status: NotificationLogStatus.SKIPPED,
+      errorCode: "APPLE_PASS_TYPE_NOT_CONFIGURED",
+      errorMessage: "Apple Wallet pass type identifier is not configured.",
+    } as const;
+  }
+
+  if (params.card.appleWalletRegistrations.length === 0) {
+    return {
+      status: NotificationLogStatus.SKIPPED,
+      errorCode: "NO_APPLE_REGISTRATION",
+      errorMessage: "No Apple Wallet registrations found for card.",
+    } as const;
+  }
+
+  try {
+    await notifyAppleWalletPassUpdated({
+      passTypeIdentifier,
+      serialNumber: params.card.id,
+      cardId: params.card.id,
+    });
+    return {
+      status: NotificationLogStatus.SENT,
+      providerMessageId: params.card.id,
+    } as const;
+  } catch (error) {
+    return {
+      status: NotificationLogStatus.FAILED,
+      ...parseApnsFailure(error),
+    } as const;
+  }
+}
+
+async function sendNotificationNow(req: Request, res: Response) {
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
+
+  const scoped = await requireScopedNotification(req.params.id, businessId);
+  if ("error" in scoped && scoped.error) {
+    return res.status(scoped.error.status).json({ message: scoped.error.message });
+  }
+
+  const notification = scoped.notification;
+  const executionId = randomUUID();
+  const attemptedAt = new Date();
+
+  const cards = await prisma.customerLoyaltyCard.findMany({
+    where: {
+      customer: {
+        businessId: notification.businessId,
+      },
+    },
+    select: {
+      id: true,
+      googleWalletObjectId: true,
+      customer: {
+        select: {
+          email: true,
+        },
+      },
+      template: {
+        select: {
+          id: true,
+          maxPoints: true,
+        },
+      },
+      customerLoyaltyCardCycles: {
+        orderBy: { cycleNumber: "desc" },
+        take: 1,
+        select: {
+          stampCount: true,
+          cycleNumber: true,
+        },
+      },
+      appleWalletRegistrations: {
+        take: 1,
+        select: {
+          passTypeIdentifier: true,
+        },
+      },
+    },
+  });
+
+  let sentCount = 0;
+  let failedCount = 0;
+  let skippedCount = 0;
+
+  for (const card of cards) {
+    const cardTarget = card as CardDeliveryTarget;
+
+    const channels: NotificationChannel[] = [];
+    if (cardTarget.appleWalletRegistrations.length > 0) {
+      channels.push(NotificationChannel.APPLE_WALLET);
+    }
+    if (cardTarget.googleWalletObjectId) {
+      channels.push(NotificationChannel.GOOGLE_WALLET);
+    }
+
+    if (channels.length === 0) {
+      skippedCount += 1;
+      continue;
+    }
+
+    for (const channel of channels) {
+      const log = await createNotificationLog({
+        notificationId: notification.id,
+        businessId: notification.businessId,
+        customerLoyaltyCardId: cardTarget.id,
+        executionId,
+        triggerType: NotificationTriggerType.MANUAL_NOW,
+        channel,
+        scheduledForUtc: attemptedAt,
+      });
+
+      const result =
+        channel === NotificationChannel.APPLE_WALLET
+          ? await sendAppleWalletNotificationForCard({ card: cardTarget })
+          : await sendGoogleWalletNotificationForCard({
+              notification,
+              card: cardTarget,
+            });
+
+      await markNotificationLogResult({
+        logId: log.id,
+        status: result.status,
+        attemptedAt: new Date(),
+        errorCode: "errorCode" in result ? result.errorCode ?? null : null,
+        errorMessage:
+          "errorMessage" in result ? result.errorMessage ?? null : null,
+        providerMessageId:
+          "providerMessageId" in result ? result.providerMessageId ?? null : null,
+      });
+
+      if (result.status === NotificationLogStatus.SENT) {
+        sentCount += 1;
+      } else if (result.status === NotificationLogStatus.FAILED) {
+        failedCount += 1;
+      } else {
+        skippedCount += 1;
+      }
+    }
+  }
+
+  await prisma.notification.update({
+    where: { id: notification.id },
+    data: { lastRunAtUtc: attemptedAt },
+  });
+
+  return res.status(200).json({
+    notificationId: notification.id,
+    executionId,
+    triggerType: "manual_now",
+    sentCount,
+    failedCount,
+    skippedCount,
+    targetCardCount: cards.length,
+    attemptedAt: attemptedAt.toISOString(),
+  });
+}
+
 export const notificationController = {
   createNotification,
   listNotificationsByBusiness,
@@ -548,4 +902,5 @@ export const notificationController = {
   updateNotification,
   updateNotificationStatus,
   deleteNotification,
+  sendNotificationNow,
 };
