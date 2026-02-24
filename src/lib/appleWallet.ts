@@ -35,6 +35,8 @@ export type AppleWalletPassInput = {
   stripImageUrl?: string | null;
   webServiceUrl?: string | null;
   authenticationToken?: string | null;
+  notificationTitle?: string | null;
+  notificationMessage?: string | null;
 };
 
 export type AppleWalletPassBundle = {
@@ -53,6 +55,7 @@ type ZipEntry = {
 const DEFAULT_DESCRIPTION = "Loyale Loyalty Card";
 const DEFAULT_ORGANIZATION_NAME = "Loyale";
 const DEFAULT_COLOR = "#121826";
+const MAX_NOTIFICATION_FIELD_LENGTH = 180;
 
 const CRC32_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -424,6 +427,11 @@ function buildPassJson(
     input.businessName?.trim() ||
     input.issuerName?.trim() ||
     config.organizationName;
+  const notificationText = [input.notificationTitle, input.notificationMessage]
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean)
+    .join(" - ")
+    .slice(0, MAX_NOTIFICATION_FIELD_LENGTH);
 
   const pass: Record<string, unknown> = {
     formatVersion: 1,
@@ -472,6 +480,18 @@ function buildPassJson(
           value: safeRewards,
         },
       ],
+      ...(notificationText
+        ? {
+            backFields: [
+              {
+                key: "notif_message",
+                label: "Latest update",
+                value: notificationText,
+                changeMessage: "Loyale: %@",
+              },
+            ],
+          }
+        : {}),
     },
     suppressStripShine: true,
   };

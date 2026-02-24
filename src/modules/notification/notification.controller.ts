@@ -670,6 +670,7 @@ async function markNotificationLogResult(params: {
 async function sendGoogleWalletNotificationForCard(params: {
   notification: Notification;
   card: CardDeliveryTarget;
+  executionId: string;
 }) {
   if (!params.card.googleWalletObjectId) {
     return {
@@ -718,9 +719,42 @@ async function sendGoogleWalletNotificationForCard(params: {
   );
 
   if (updateRes.ok) {
+    const messageId = trimTo(
+      `notif-${params.notification.id}-${params.executionId}`,
+      100,
+    );
+    const addMessageRes = await walletRequest(
+      `/loyaltyObject/${encodeURIComponent(
+        params.card.googleWalletObjectId,
+      )}/addMessage`,
+      {
+        method: "POST",
+        body: {
+          message: {
+            id: messageId,
+            header: trimTo(params.notification.title, 40),
+            body: trimTo(params.notification.message, 240),
+            messageType: "TEXT_AND_NOTIFY",
+          },
+        },
+      },
+    );
+
+    if (addMessageRes.ok) {
+      return {
+        status: NotificationLogStatus.SENT,
+        providerMessageId: `${params.card.googleWalletObjectId}:${messageId}`,
+      } as const;
+    }
+
+    const addMessageDetails = await addMessageRes.text();
+    const parsedAddMessageError = parseGoogleWalletFailure(
+      addMessageRes.status,
+      addMessageDetails,
+    );
     return {
-      status: NotificationLogStatus.SENT,
-      providerMessageId: params.card.googleWalletObjectId,
+      status: NotificationLogStatus.FAILED,
+      ...parsedAddMessageError,
     } as const;
   }
 
@@ -859,6 +893,7 @@ async function sendNotificationNow(req: Request, res: Response) {
           : await sendGoogleWalletNotificationForCard({
               notification,
               card: cardTarget,
+              executionId,
             });
 
       await markNotificationLogResult({

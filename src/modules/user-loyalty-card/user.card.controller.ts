@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { getSession } from "@auth/express";
+import { NotificationChannel, NotificationLogStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client.js";
 import { authConfig } from "../../auth.js";
 import { createSaveJwt, issuerId, walletRequest } from "../../lib/googleWallet.js";
@@ -82,6 +83,24 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
           cycleNumber: true,
         },
       },
+      notificationLogs: {
+        where: {
+          channel: NotificationChannel.APPLE_WALLET,
+          status: {
+            in: [NotificationLogStatus.QUEUED, NotificationLogStatus.SENT],
+          },
+        },
+        orderBy: [{ attemptedAt: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: {
+          notification: {
+            select: {
+              title: true,
+              message: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -106,6 +125,7 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
     : null;
   const webServiceUrl =
     configuredWebServiceUrl ?? requestWebServiceUrl ?? undefined;
+  const latestAppleNotification = card.notificationLogs[0]?.notification;
 
   const pass = await createAppleWalletPass({
     cardId: card.id,
@@ -126,6 +146,8 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
     stripImageUrl,
     authenticationToken,
     webServiceUrl,
+    notificationTitle: latestAppleNotification?.title ?? null,
+    notificationMessage: latestAppleNotification?.message ?? null,
   });
 
   return pass;
