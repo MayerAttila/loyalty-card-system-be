@@ -255,7 +255,6 @@ model Notification {
   business        Business               @relation(fields: [businessId], references: [id], onDelete: Cascade)
   createdById     String
   createdBy       User                   @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  title           String
   message         String
   status          NotificationStatus     @default(ACTIVE)
   deliveryMode    NotificationDeliveryMode

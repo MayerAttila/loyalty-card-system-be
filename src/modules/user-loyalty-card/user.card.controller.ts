@@ -95,7 +95,6 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
         select: {
           notification: {
             select: {
-              title: true,
               message: true,
             },
           },
@@ -146,7 +145,7 @@ const buildAppleWalletPassBundle = async (cardId: string, req?: Request) => {
     stripImageUrl,
     authenticationToken,
     webServiceUrl,
-    notificationTitle: latestAppleNotification?.title ?? null,
+    notificationTitle: null,
     notificationMessage: latestAppleNotification?.message ?? null,
   });
 

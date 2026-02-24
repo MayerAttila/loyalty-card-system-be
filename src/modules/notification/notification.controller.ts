@@ -28,7 +28,6 @@ const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 type BodyRecord = Record<string, unknown>;
 
 type NotificationWriteInput = {
-  title: string;
   message: string;
   status: NotificationStatus;
   deliveryMode: NotificationDeliveryMode;
@@ -47,6 +46,15 @@ const hasOwn = (obj: BodyRecord, key: string) =>
 
 const normalizeString = (value: unknown) =>
   typeof value === "string" ? value.trim() : "";
+
+function deriveNotificationTitle(message: string) {
+  const normalized = message.replace(/\s+/g, " ").trim();
+  if (!normalized) return "Notification";
+  if (normalized.length <= MAX_TITLE_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…`;
+}
 
 const normalizeOptionalString = (value: unknown) => {
   if (value === null) return null;
@@ -158,11 +166,6 @@ function parseScheduledAtFallbackFromDateAndTime(body: BodyRecord) {
 }
 
 function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
-  const title = normalizeString(body.title);
-  if (!title || title.length > MAX_TITLE_LENGTH) {
-    throw new Error("Notification title is required.");
-  }
-
   const message = normalizeString(body.message);
   if (!message || message.length > MAX_MESSAGE_LENGTH) {
     throw new Error("Notification message is required.");
@@ -279,7 +282,6 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
   }
 
   return {
-    title,
     message,
     status: parsedStatus,
     deliveryMode,
@@ -330,7 +332,6 @@ function serializeNotification(notification: NotificationWithMeta) {
     businessId: notification.businessId,
     createdById: notification.createdById,
     createdBy: notification.createdBy,
-    title: notification.title,
     message: notification.message,
     status: notification.status.toLowerCase(),
     deliveryMode: notification.deliveryMode.toLowerCase(),
@@ -474,7 +475,6 @@ async function updateNotification(req: Request, res: Response) {
   const body = (req.body ?? {}) as BodyRecord;
 
   const mergedPayload: BodyRecord = {
-    title: existing.title,
     message: existing.message,
     status: existing.status,
     deliveryMode: existing.deliveryMode,
@@ -710,7 +710,7 @@ async function sendGoogleWalletNotificationForCard(params: {
           }),
           {
             id: "notification",
-            header: trimTo(params.notification.title, 40),
+            header: trimTo(deriveNotificationTitle(params.notification.message), 40),
             body: trimTo(params.notification.message, 240),
           },
         ],
@@ -732,7 +732,7 @@ async function sendGoogleWalletNotificationForCard(params: {
         body: {
           message: {
             id: messageId,
-            header: trimTo(params.notification.title, 40),
+            header: trimTo(deriveNotificationTitle(params.notification.message), 40),
             body: trimTo(params.notification.message, 240),
             messageType: "TEXT_AND_NOTIFY",
           },

@@ -448,7 +448,7 @@ function buildPassJson(
     passTypeIdentifier: config.passTypeIdentifier,
     serialNumber,
     teamIdentifier: config.teamIdentifier,
-    organizationName: config.organizationName,
+    organizationName: businessDisplayName,
     description: config.description,
     // Keep logo-only on the left side.
     logoText: " ",
