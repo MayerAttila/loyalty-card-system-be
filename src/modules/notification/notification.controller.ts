@@ -165,6 +165,234 @@ function parseScheduledAtFallbackFromDateAndTime(body: BodyRecord) {
   return parsed;
 }
 
+type LocalDateParts = {
+  year: number;
+  month: number; // 1-12
+  day: number; // 1-31
+};
+
+type LocalTimeParts = {
+  hour: number;
+  minute: number;
+};
+
+type ZonedDateTimeParts = LocalDateParts &
+  LocalTimeParts & {
+    second: number;
+  };
+
+type RecurringScheduleLike = {
+  repeatPattern: NotificationRepeatPattern;
+  repeatDays: NotificationWeekday[];
+  monthlyDayOfMonth: number | null;
+  repeatTimeLocal: string;
+  timezone: string;
+  createdAt?: Date | null;
+};
+
+const WEEKDAY_TO_JS_DAY: Record<NotificationWeekday, number> = {
+  [NotificationWeekday.SUN]: 0,
+  [NotificationWeekday.MON]: 1,
+  [NotificationWeekday.TUE]: 2,
+  [NotificationWeekday.WED]: 3,
+  [NotificationWeekday.THU]: 4,
+  [NotificationWeekday.FRI]: 5,
+  [NotificationWeekday.SAT]: 6,
+};
+
+const zonedDateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
+
+function getZonedDateTimeFormatter(timezone: string) {
+  const cached = zonedDateTimeFormatterCache.get(timezone);
+  if (cached) return cached;
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  zonedDateTimeFormatterCache.set(timezone, formatter);
+  return formatter;
+}
+
+function getZonedDateTimeParts(date: Date, timezone: string): ZonedDateTimeParts {
+  const parts = getZonedDateTimeFormatter(timezone).formatToParts(date);
+  const values: Partial<Record<Intl.DateTimeFormatPartTypes, number>> = {};
+  for (const part of parts) {
+    if (
+      part.type === "year" ||
+      part.type === "month" ||
+      part.type === "day" ||
+      part.type === "hour" ||
+      part.type === "minute" ||
+      part.type === "second"
+    ) {
+      values[part.type] = Number.parseInt(part.value, 10);
+    }
+  }
+
+  return {
+    year: values.year ?? 1970,
+    month: values.month ?? 1,
+    day: values.day ?? 1,
+    hour: values.hour ?? 0,
+    minute: values.minute ?? 0,
+    second: values.second ?? 0,
+  };
+}
+
+function getTimeZoneOffsetMs(date: Date, timezone: string) {
+  const parts = getZonedDateTimeParts(date, timezone);
+  const utcEquivalent = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+    0,
+  );
+  return utcEquivalent - date.getTime();
+}
+
+function zonedLocalDateTimeToUtc(
+  dateParts: LocalDateParts,
+  timeParts: LocalTimeParts,
+  timezone: string,
+) {
+  const utcGuessMs = Date.UTC(
+    dateParts.year,
+    dateParts.month - 1,
+    dateParts.day,
+    timeParts.hour,
+    timeParts.minute,
+    0,
+    0,
+  );
+  const firstGuess = new Date(utcGuessMs);
+  const offsetMs = getTimeZoneOffsetMs(firstGuess, timezone);
+  let result = new Date(utcGuessMs - offsetMs);
+
+  // Re-evaluate once to handle DST transitions near the target time.
+  const correctedOffsetMs = getTimeZoneOffsetMs(result, timezone);
+  if (correctedOffsetMs !== offsetMs) {
+    result = new Date(utcGuessMs - correctedOffsetMs);
+  }
+
+  return result;
+}
+
+function parseLocalTime(timeValue: string): LocalTimeParts | null {
+  if (!TIME_HH_MM_REGEX.test(timeValue)) return null;
+  const [hour, minute] = timeValue.split(":").map((part) => Number.parseInt(part, 10));
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  return { hour, minute };
+}
+
+function localDateToEpochDay(parts: LocalDateParts) {
+  return Math.floor(Date.UTC(parts.year, parts.month - 1, parts.day) / 86_400_000);
+}
+
+function epochDayToLocalDate(epochDay: number): LocalDateParts {
+  const date = new Date(epochDay * 86_400_000);
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate(),
+  };
+}
+
+function getDaysInMonth(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+function addMonthsToLocalDate(
+  year: number,
+  month: number,
+  monthOffset: number,
+): { year: number; month: number } {
+  const zeroBased = (month - 1) + monthOffset;
+  const targetYear = year + Math.floor(zeroBased / 12);
+  const targetMonth = ((zeroBased % 12) + 12) % 12 + 1;
+  return { year: targetYear, month: targetMonth };
+}
+
+function computeNextRecurringRunAtUtc(
+  schedule: RecurringScheduleLike,
+  afterUtc: Date,
+): Date | null {
+  const timeParts = parseLocalTime(schedule.repeatTimeLocal);
+  if (!timeParts) return null;
+
+  const timezone = schedule.timezone;
+
+  if (schedule.repeatPattern === NotificationRepeatPattern.MONTHLY) {
+    const startLocal = getZonedDateTimeParts(afterUtc, timezone);
+    const targetDay = Math.max(1, Math.min(31, schedule.monthlyDayOfMonth ?? 1));
+
+    for (let monthOffset = 0; monthOffset < 36; monthOffset += 1) {
+      const targetMonth = addMonthsToLocalDate(
+        startLocal.year,
+        startLocal.month,
+        monthOffset,
+      );
+      const day = Math.min(targetDay, getDaysInMonth(targetMonth.year, targetMonth.month));
+      const candidate = zonedLocalDateTimeToUtc(
+        { year: targetMonth.year, month: targetMonth.month, day },
+        timeParts,
+        timezone,
+      );
+      if (candidate.getTime() > afterUtc.getTime()) {
+        return candidate;
+      }
+    }
+    return null;
+  }
+
+  const selectedWeekdays = new Set<number>(
+    schedule.repeatDays.map((day) => WEEKDAY_TO_JS_DAY[day]),
+  );
+  if (selectedWeekdays.size === 0) {
+    return null;
+  }
+
+  const startLocalDate = getZonedDateTimeParts(afterUtc, timezone);
+  const startEpochDay = localDateToEpochDay(startLocalDate);
+  const anchorLocal = getZonedDateTimeParts(schedule.createdAt ?? afterUtc, timezone);
+  const anchorEpochDay = localDateToEpochDay(anchorLocal);
+
+  for (let offset = 0; offset < 400; offset += 1) {
+    const epochDay = startEpochDay + offset;
+    const localDate = epochDayToLocalDate(epochDay);
+    const jsWeekday = new Date(
+      Date.UTC(localDate.year, localDate.month - 1, localDate.day),
+    ).getUTCDay();
+
+    if (!selectedWeekdays.has(jsWeekday)) {
+      continue;
+    }
+
+    if (schedule.repeatPattern === NotificationRepeatPattern.BIWEEKLY) {
+      const weekDelta = Math.floor((epochDay - anchorEpochDay) / 7);
+      if (weekDelta % 2 !== 0) {
+        continue;
+      }
+    }
+
+    const candidate = zonedLocalDateTimeToUtc(localDate, timeParts, timezone);
+    if (candidate.getTime() > afterUtc.getTime()) {
+      return candidate;
+    }
+  }
+
+  return null;
+}
+
 function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
   const message = normalizeString(body.message);
   if (!message || message.length > MAX_MESSAGE_LENGTH) {
@@ -276,8 +504,19 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
         }
         monthlyDayOfMonth = null;
       }
-      // Recurring next-run calculation will be handled by the scheduler worker.
-      nextRunAtUtc = null;
+      nextRunAtUtc = computeNextRecurringRunAtUtc(
+        {
+          repeatPattern,
+          repeatDays,
+          monthlyDayOfMonth,
+          repeatTimeLocal,
+          timezone,
+        },
+        new Date(),
+      );
+      if (!nextRunAtUtc) {
+        throw new Error("Unable to compute next scheduled run.");
+      }
     }
   }
 
@@ -804,18 +1043,23 @@ async function sendAppleWalletNotificationForCard(params: {
   }
 }
 
-async function sendNotificationNow(req: Request, res: Response) {
-  const businessId = req.authUser?.businessId;
-  if (!businessId) {
-    return res.status(403).json({ message: "invalid session" });
-  }
+type NotificationDispatchResult = {
+  notificationId: string;
+  executionId: string;
+  triggerType: NotificationTriggerType;
+  sentCount: number;
+  failedCount: number;
+  skippedCount: number;
+  targetCardCount: number;
+  attemptedAt: Date;
+};
 
-  const scoped = await requireScopedNotification(req.params.id, businessId);
-  if ("error" in scoped && scoped.error) {
-    return res.status(scoped.error.status).json({ message: scoped.error.message });
-  }
-
-  const notification = scoped.notification;
+async function executeNotificationDispatch(params: {
+  notification: Notification;
+  triggerType: NotificationTriggerType;
+  scheduledForUtc?: Date | null;
+}): Promise<NotificationDispatchResult> {
+  const notification = params.notification;
   const executionId = randomUUID();
   const attemptedAt = new Date();
 
@@ -882,9 +1126,9 @@ async function sendNotificationNow(req: Request, res: Response) {
         businessId: notification.businessId,
         customerLoyaltyCardId: cardTarget.id,
         executionId,
-        triggerType: NotificationTriggerType.MANUAL_NOW,
+        triggerType: params.triggerType,
         channel,
-        scheduledForUtc: attemptedAt,
+        scheduledForUtc: params.scheduledForUtc ?? attemptedAt,
       });
 
       const result =
@@ -917,20 +1161,227 @@ async function sendNotificationNow(req: Request, res: Response) {
     }
   }
 
-  await prisma.notification.update({
-    where: { id: notification.id },
-    data: { lastRunAtUtc: attemptedAt },
-  });
-
-  return res.status(200).json({
+  return {
     notificationId: notification.id,
     executionId,
-    triggerType: "manual_now",
+    triggerType: params.triggerType,
     sentCount,
     failedCount,
     skippedCount,
     targetCardCount: cards.length,
-    attemptedAt: attemptedAt.toISOString(),
+    attemptedAt,
+  };
+}
+
+function computeNotificationNextRunAfterExecution(notification: Notification, runAtUtc: Date) {
+  if (notification.deliveryMode !== NotificationDeliveryMode.SCHEDULED) {
+    return {
+      status: notification.status,
+      nextRunAtUtc: notification.nextRunAtUtc,
+    };
+  }
+
+  if (notification.scheduleType === NotificationScheduleType.ONCE) {
+    return {
+      status: NotificationStatus.INACTIVE,
+      nextRunAtUtc: null,
+    };
+  }
+
+  if (
+    !notification.repeatPattern ||
+    !notification.repeatTimeLocal ||
+    !notification.timezone
+  ) {
+    return {
+      status: notification.status,
+      nextRunAtUtc: null,
+    };
+  }
+
+  const baseTime = new Date(
+    (notification.nextRunAtUtc ?? runAtUtc).getTime() + 1_000,
+  );
+  const nextRunAtUtc = computeNextRecurringRunAtUtc(
+    {
+      repeatPattern: notification.repeatPattern,
+      repeatDays: notification.repeatDays,
+      monthlyDayOfMonth: notification.monthlyDayOfMonth ?? null,
+      repeatTimeLocal: notification.repeatTimeLocal,
+      timezone: notification.timezone,
+      createdAt: notification.createdAt,
+    },
+    baseTime,
+  );
+
+  return {
+    status: notification.status,
+    nextRunAtUtc,
+  };
+}
+
+let notificationSchedulerTickRunning = false;
+
+export async function runNotificationSchedulerTick() {
+  if (notificationSchedulerTickRunning) {
+    return { skipped: true as const, reason: "tick-already-running" as const };
+  }
+
+  notificationSchedulerTickRunning = true;
+  try {
+    const now = new Date();
+    const batchSizeRaw = Number.parseInt(
+      process.env.NOTIFICATION_SCHEDULER_BATCH_SIZE ?? "20",
+      10,
+    );
+    const batchSize =
+      Number.isInteger(batchSizeRaw) && batchSizeRaw > 0
+        ? Math.min(batchSizeRaw, 100)
+        : 20;
+
+    const dueOrUnscheduled = await prisma.notification.findMany({
+      where: {
+        status: NotificationStatus.ACTIVE,
+        deliveryMode: NotificationDeliveryMode.SCHEDULED,
+        OR: [
+          { nextRunAtUtc: { lte: now } },
+          {
+            scheduleType: NotificationScheduleType.REPEAT,
+            nextRunAtUtc: null,
+          },
+        ],
+      },
+      orderBy: [{ nextRunAtUtc: "asc" }, { createdAt: "asc" }],
+      take: batchSize,
+    });
+
+    let executedCount = 0;
+    let initializedCount = 0;
+
+    for (const candidate of dueOrUnscheduled) {
+      let notification = candidate;
+
+      if (
+        notification.scheduleType === NotificationScheduleType.REPEAT &&
+        notification.nextRunAtUtc === null &&
+        notification.repeatPattern &&
+        notification.repeatTimeLocal
+      ) {
+        const computed = computeNextRecurringRunAtUtc(
+          {
+            repeatPattern: notification.repeatPattern,
+            repeatDays: notification.repeatDays,
+            monthlyDayOfMonth: notification.monthlyDayOfMonth ?? null,
+            repeatTimeLocal: notification.repeatTimeLocal,
+            timezone: notification.timezone,
+            createdAt: notification.createdAt,
+          },
+          new Date(now.getTime() - 1_000),
+        );
+
+        await prisma.notification.update({
+          where: { id: notification.id },
+          data: { nextRunAtUtc: computed },
+        });
+        initializedCount += 1;
+
+        if (!computed || computed.getTime() > now.getTime()) {
+          continue;
+        }
+
+        notification = { ...notification, nextRunAtUtc: computed };
+      }
+
+      if (!notification.nextRunAtUtc || notification.nextRunAtUtc.getTime() > now.getTime()) {
+        continue;
+      }
+
+      const result = await executeNotificationDispatch({
+        notification,
+        triggerType: NotificationTriggerType.SCHEDULED,
+        scheduledForUtc: notification.nextRunAtUtc,
+      });
+
+      const nextState = computeNotificationNextRunAfterExecution(
+        notification,
+        result.attemptedAt,
+      );
+
+      await prisma.notification.update({
+        where: { id: notification.id },
+        data: {
+          lastRunAtUtc: result.attemptedAt,
+          nextRunAtUtc: nextState.nextRunAtUtc,
+          status: nextState.status,
+        },
+      });
+
+      executedCount += 1;
+
+      console.log("[notification-scheduler] executed", {
+        notificationId: notification.id,
+        sent: result.sentCount,
+        failed: result.failedCount,
+        skipped: result.skippedCount,
+        nextRunAtUtc: nextState.nextRunAtUtc?.toISOString() ?? null,
+        status: nextState.status,
+      });
+    }
+
+    if (dueOrUnscheduled.length > 0) {
+      console.log("[notification-scheduler] tick", {
+        candidates: dueOrUnscheduled.length,
+        initialized: initializedCount,
+        executed: executedCount,
+      });
+    }
+
+    return {
+      skipped: false as const,
+      candidates: dueOrUnscheduled.length,
+      initialized: initializedCount,
+      executed: executedCount,
+    };
+  } catch (error) {
+    console.error("[notification-scheduler] tick failed", error);
+    return { skipped: false as const, error: true as const };
+  } finally {
+    notificationSchedulerTickRunning = false;
+  }
+}
+
+async function sendNotificationNow(req: Request, res: Response) {
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
+
+  const scoped = await requireScopedNotification(req.params.id, businessId);
+  if ("error" in scoped && scoped.error) {
+    return res.status(scoped.error.status).json({ message: scoped.error.message });
+  }
+
+  const notification = scoped.notification;
+  const result = await executeNotificationDispatch({
+    notification,
+    triggerType: NotificationTriggerType.MANUAL_NOW,
+    scheduledForUtc: new Date(),
+  });
+
+  await prisma.notification.update({
+    where: { id: notification.id },
+    data: { lastRunAtUtc: result.attemptedAt },
+  });
+
+  return res.status(200).json({
+    notificationId: notification.id,
+    executionId: result.executionId,
+    triggerType: "manual_now",
+    sentCount: result.sentCount,
+    failedCount: result.failedCount,
+    skippedCount: result.skippedCount,
+    targetCardCount: result.targetCardCount,
+    attemptedAt: result.attemptedAt.toISOString(),
   });
 }
 
