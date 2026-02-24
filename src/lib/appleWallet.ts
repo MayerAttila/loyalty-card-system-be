@@ -427,11 +427,21 @@ function buildPassJson(
     input.businessName?.trim() ||
     input.issuerName?.trim() ||
     config.organizationName;
-  const notificationText = [input.notificationTitle, input.notificationMessage]
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .filter(Boolean)
-    .join(" - ")
-    .slice(0, MAX_NOTIFICATION_FIELD_LENGTH);
+  const notificationTitleText =
+    typeof input.notificationTitle === "string"
+      ? input.notificationTitle.trim()
+      : "";
+  const notificationMessageText =
+    typeof input.notificationMessage === "string"
+      ? input.notificationMessage.trim()
+      : "";
+  const notificationFieldValue = (
+    notificationMessageText || notificationTitleText
+  ).slice(0, MAX_NOTIFICATION_FIELD_LENGTH);
+  const notificationChangeMessage =
+    notificationTitleText && notificationMessageText
+      ? `${notificationTitleText}\n%@`
+      : "%@";
 
   const pass: Record<string, unknown> = {
     formatVersion: 1,
@@ -480,14 +490,14 @@ function buildPassJson(
           value: safeRewards,
         },
       ],
-      ...(notificationText
+      ...(notificationFieldValue
         ? {
             backFields: [
               {
                 key: "notif_message",
                 label: "Latest update",
-                value: notificationText,
-                changeMessage: "Loyale: %@",
+                value: notificationFieldValue,
+                changeMessage: notificationChangeMessage,
               },
             ],
           }
@@ -542,23 +552,27 @@ export async function createAppleWalletPass(
     ? "#ffffff"
     : "#0f172a";
 
-  const icon = createFallbackImage({
-    width: 58,
-    height: 58,
-    backgroundHex,
-    foregroundHex,
-  });
-  const icon2x = createFallbackImage({
-    width: 116,
-    height: 116,
-    backgroundHex,
-    foregroundHex,
-  });
-
   const logoRemote = await tryFetchPng(input.logoImageUrl);
+  const logoSourcePng = logoRemote ? PNG.sync.read(logoRemote) : null;
+  const icon = logoSourcePng
+    ? PNG.sync.write(scaleToFitTransparent(logoSourcePng, 58, 58))
+    : createFallbackImage({
+        width: 58,
+        height: 58,
+        backgroundHex,
+        foregroundHex,
+      });
+  const icon2x = logoSourcePng
+    ? PNG.sync.write(scaleToFitTransparent(logoSourcePng, 116, 116))
+    : createFallbackImage({
+        width: 116,
+        height: 116,
+        backgroundHex,
+        foregroundHex,
+      });
   const logo = logoRemote
     ? PNG.sync.write(
-        scaleToFitTransparent(PNG.sync.read(logoRemote), 320, 100, {
+        scaleToFitTransparent(logoSourcePng!, 320, 100, {
           alignX: "left",
           alignY: "top",
         }),
