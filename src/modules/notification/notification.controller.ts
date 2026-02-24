@@ -225,7 +225,11 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
   }
 
   const monthlyDayRaw = parseMonthlyDayOfMonth(body.monthlyDayOfMonth);
-  if (monthlyDayRaw === null && hasOwn(body, "monthlyDayOfMonth")) {
+  if (
+    monthlyDayRaw === null &&
+    hasOwn(body, "monthlyDayOfMonth") &&
+    body.monthlyDayOfMonth !== null
+  ) {
     throw new Error("Invalid monthly day.");
   }
 
