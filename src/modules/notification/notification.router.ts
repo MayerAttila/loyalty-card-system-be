@@ -29,6 +29,14 @@ notificationRouter.get(
 );
 
 notificationRouter.get(
+  "/logs/business",
+  requireSession,
+  requireBusinessMember,
+  requireRoles("OWNER", "ADMIN"),
+  notificationController.listNotificationLogsByBusiness
+);
+
+notificationRouter.get(
   "/id/:id",
   requireSession,
   requireBusinessMember,

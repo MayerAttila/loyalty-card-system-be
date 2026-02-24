@@ -546,6 +546,41 @@ type NotificationWithMeta = Notification & {
   };
 };
 
+type NotificationLogWithMeta = {
+  id: string;
+  notificationId: string;
+  businessId: string;
+  customerLoyaltyCardId: string;
+  executionId: string;
+  triggerType: NotificationTriggerType;
+  channel: NotificationChannel;
+  status: NotificationLogStatus;
+  scheduledForUtc: Date | null;
+  attemptedAt: Date | null;
+  providerMessageId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  notification: {
+    id: string;
+    message: string;
+  };
+  customerLoyaltyCard: {
+    id: string;
+    customer: {
+      id: string;
+      name: string;
+      email: string;
+    };
+    template: {
+      id: string;
+      template: string;
+      maxPoints: number;
+    };
+  };
+};
+
 type CardDeliveryTarget = {
   id: string;
   googleWalletObjectId: string | null;
@@ -586,6 +621,35 @@ function serializeNotification(notification: NotificationWithMeta) {
     createdAt: notification.createdAt,
     updatedAt: notification.updatedAt,
     logCount: notification._count.logs,
+  };
+}
+
+function serializeNotificationLog(log: NotificationLogWithMeta) {
+  return {
+    id: log.id,
+    notificationId: log.notificationId,
+    businessId: log.businessId,
+    customerLoyaltyCardId: log.customerLoyaltyCardId,
+    executionId: log.executionId,
+    triggerType: log.triggerType.toLowerCase(),
+    channel: log.channel.toLowerCase(),
+    status: log.status.toLowerCase(),
+    scheduledForUtc: log.scheduledForUtc,
+    attemptedAt: log.attemptedAt,
+    providerMessageId: log.providerMessageId,
+    errorCode: log.errorCode,
+    errorMessage: log.errorMessage,
+    createdAt: log.createdAt,
+    updatedAt: log.updatedAt,
+    notification: {
+      id: log.notification.id,
+      message: log.notification.message,
+    },
+    customerLoyaltyCard: {
+      id: log.customerLoyaltyCard.id,
+      customer: log.customerLoyaltyCard.customer,
+      template: log.customerLoyaltyCard.template,
+    },
   };
 }
 
@@ -683,6 +747,52 @@ async function listNotificationsByBusiness(req: Request, res: Response) {
   });
 
   return res.json(notifications.map(serializeNotification));
+}
+
+async function listNotificationLogsByBusiness(req: Request, res: Response) {
+  const businessId = req.authUser?.businessId;
+  if (!businessId) {
+    return res.status(403).json({ message: "invalid session" });
+  }
+
+  const limitRaw = Number.parseInt(String(req.query.limit ?? "300"), 10);
+  const limit =
+    Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 300;
+
+  const logs = await prisma.notificationLog.findMany({
+    where: { businessId },
+    orderBy: [{ createdAt: "desc" }],
+    take: limit,
+    include: {
+      notification: {
+        select: {
+          id: true,
+          message: true,
+        },
+      },
+      customerLoyaltyCard: {
+        select: {
+          id: true,
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          template: {
+            select: {
+              id: true,
+              template: true,
+              maxPoints: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  return res.json(logs.map((log) => serializeNotificationLog(log as NotificationLogWithMeta)));
 }
 
 async function getNotificationById(req: Request, res: Response) {
@@ -1388,6 +1498,7 @@ async function sendNotificationNow(req: Request, res: Response) {
 export const notificationController = {
   createNotification,
   listNotificationsByBusiness,
+  listNotificationLogsByBusiness,
   getNotificationById,
   updateNotification,
   updateNotificationStatus,
