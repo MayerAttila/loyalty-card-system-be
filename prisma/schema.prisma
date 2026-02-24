@@ -150,6 +150,12 @@ enum NotificationScheduleType {
   REPEAT
 }
 
+enum NotificationRepeatPattern {
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
 enum NotificationWeekday {
   MON
   TUE
@@ -256,6 +262,8 @@ model Notification {
   scheduleType    NotificationScheduleType @default(ONCE)
   scheduledAtUtc  DateTime?
   repeatDays      NotificationWeekday[]
+  repeatPattern   NotificationRepeatPattern?
+  monthlyDayOfMonth Int?
   repeatTimeLocal String?
   timezone        String                 @default("UTC")
   nextRunAtUtc    DateTime?

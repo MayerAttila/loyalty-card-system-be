@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import {
   NotificationDeliveryMode,
+  NotificationRepeatPattern,
   NotificationScheduleType,
   NotificationStatus,
   NotificationWeekday,
@@ -23,6 +24,8 @@ type NotificationWriteInput = {
   scheduleType: NotificationScheduleType;
   scheduledAtUtc: Date | null;
   repeatDays: NotificationWeekday[];
+  repeatPattern: NotificationRepeatPattern | null;
+  monthlyDayOfMonth: number | null;
   repeatTimeLocal: string | null;
   timezone: string;
   nextRunAtUtc: Date | null;
@@ -93,6 +96,31 @@ function parseNotificationWeekdays(value: unknown): NotificationWeekday[] | null
   }
 
   return parsed;
+}
+
+function parseNotificationRepeatPattern(
+  value: unknown
+): NotificationRepeatPattern | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase();
+  if (normalized === "WEEKLY") return NotificationRepeatPattern.WEEKLY;
+  if (normalized === "BIWEEKLY") return NotificationRepeatPattern.BIWEEKLY;
+  if (normalized === "MONTHLY") return NotificationRepeatPattern.MONTHLY;
+  return null;
+}
+
+function parseMonthlyDayOfMonth(value: unknown): number | null | undefined {
+  if (typeof value === "undefined") return undefined;
+  if (value === null) return null;
+  const numeric =
+    typeof value === "number"
+      ? value
+      : typeof value === "string"
+        ? Number.parseInt(value, 10)
+        : Number.NaN;
+  if (!Number.isInteger(numeric)) return null;
+  if (numeric < 1 || numeric > 31) return null;
+  return numeric;
 }
 
 function parseDateFromIsoString(value: unknown): Date | null {
@@ -174,6 +202,22 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
     throw new Error("Invalid repeat days.");
   }
 
+  const repeatPatternRaw = hasOwn(body, "repeatPattern")
+    ? parseNotificationRepeatPattern(body.repeatPattern)
+    : NotificationRepeatPattern.WEEKLY;
+  if (
+    !repeatPatternRaw &&
+    deliveryMode === NotificationDeliveryMode.SCHEDULED &&
+    scheduleType === NotificationScheduleType.REPEAT
+  ) {
+    throw new Error("Invalid repeat pattern.");
+  }
+
+  const monthlyDayRaw = parseMonthlyDayOfMonth(body.monthlyDayOfMonth);
+  if (monthlyDayRaw === null && hasOwn(body, "monthlyDayOfMonth")) {
+    throw new Error("Invalid monthly day.");
+  }
+
   const repeatTimeLocalParsed = hasOwn(body, "repeatTimeLocal")
     ? normalizeOptionalString(body.repeatTimeLocal)
     : normalizeOptionalString(body.scheduledTime);
@@ -183,6 +227,8 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
 
   let scheduledAtUtc: Date | null = null;
   let repeatDays: NotificationWeekday[] = [];
+  let repeatPattern: NotificationRepeatPattern | null = null;
+  let monthlyDayOfMonth: number | null = null;
   let repeatTimeLocal: string | null = null;
   let nextRunAtUtc: Date | null = null;
 
@@ -194,13 +240,23 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
       }
       nextRunAtUtc = scheduledAtUtc;
     } else {
-      repeatDays = repeatDaysRaw;
+      repeatPattern = repeatPatternRaw ?? NotificationRepeatPattern.WEEKLY;
       repeatTimeLocal = repeatTimeLocalParsed ?? null;
-      if (repeatDays.length === 0) {
-        throw new Error("At least one repeat day is required.");
-      }
       if (!repeatTimeLocal) {
         throw new Error("Repeat time is required.");
+      }
+      if (repeatPattern === NotificationRepeatPattern.MONTHLY) {
+        monthlyDayOfMonth = monthlyDayRaw ?? null;
+        if (!monthlyDayOfMonth) {
+          throw new Error("Monthly day is required.");
+        }
+        repeatDays = [];
+      } else {
+        repeatDays = repeatDaysRaw;
+        if (repeatDays.length === 0) {
+          throw new Error("At least one repeat day is required.");
+        }
+        monthlyDayOfMonth = null;
       }
       // Recurring next-run calculation will be handled by the scheduler worker.
       nextRunAtUtc = null;
@@ -215,6 +271,8 @@ function buildNotificationWriteInput(body: BodyRecord): NotificationWriteInput {
     scheduleType,
     scheduledAtUtc,
     repeatDays,
+    repeatPattern,
+    monthlyDayOfMonth,
     repeatTimeLocal,
     timezone,
     nextRunAtUtc,
@@ -245,6 +303,8 @@ function serializeNotification(notification: NotificationWithMeta) {
     scheduleType: notification.scheduleType.toLowerCase(),
     scheduledAtUtc: notification.scheduledAtUtc,
     repeatDays: notification.repeatDays.map((day) => day.toLowerCase()),
+    repeatPattern: notification.repeatPattern?.toLowerCase() ?? null,
+    monthlyDayOfMonth: notification.monthlyDayOfMonth ?? null,
     repeatTimeLocal: notification.repeatTimeLocal,
     timezone: notification.timezone,
     nextRunAtUtc: notification.nextRunAtUtc,
@@ -387,6 +447,8 @@ async function updateNotification(req: Request, res: Response) {
     scheduleType: existing.scheduleType,
     scheduledAtUtc: existing.scheduledAtUtc?.toISOString() ?? null,
     repeatDays: existing.repeatDays,
+    repeatPattern: existing.repeatPattern ?? NotificationRepeatPattern.WEEKLY,
+    monthlyDayOfMonth: existing.monthlyDayOfMonth,
     repeatTimeLocal: existing.repeatTimeLocal,
     timezone: existing.timezone,
     ...body,
