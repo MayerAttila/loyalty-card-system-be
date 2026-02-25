@@ -84,6 +84,12 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
           id: true,
           googleWalletObjectId: true,
           createdAt: true,
+          appleWalletRegistrations: {
+            take: 1,
+            select: {
+              deviceLibraryIdentifier: true,
+            },
+          },
           template: {
             select: {
               template: true,
@@ -121,13 +127,22 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
         const cycle = card.customerLoyaltyCardCycles[0];
         const maxPoints = card.template?.maxPoints ?? null;
         const cycleNumber = cycle?.cycleNumber ?? 1;
+        const hasGoogleWallet = Boolean(card.googleWalletObjectId);
+        const hasAppleWallet = card.appleWalletRegistrations.length > 0;
+        const walletPlatform = hasGoogleWallet
+          ? hasAppleWallet
+            ? "both"
+            : "google"
+          : hasAppleWallet
+            ? "apple"
+            : "none";
         return {
           templateTitle: card.template?.template ?? null,
           stampCount: cycle?.stampCount ?? 0,
           maxPoints,
           rewardsEarned: Math.max(cycleNumber - 1, 0),
           lastActivity: cycle?.stampingLogs[0]?.stampedAt ?? null,
-          hasWallet: Boolean(card.googleWalletObjectId),
+          walletPlatform,
         };
       })(),
     }))
