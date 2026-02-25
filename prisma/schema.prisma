@@ -12,6 +12,11 @@ enum UserRole {
     STAFF
   }
 
+enum ReferralLinkStatus {
+  ACTIVE
+  INACTIVE
+}
+
 model User {
   id        String   @id @default(uuid())
   name      String
@@ -102,6 +107,23 @@ model Business {
   customers    Customer[]
   notifications Notification[]
   notificationLogs NotificationLog[]
+  referralLinkId String?
+  referralLink   ReferralLink? @relation("BusinessReferralLink", fields: [referralLinkId], references: [id], onDelete: SetNull)
+
+  @@index([referralLinkId])
+}
+
+model ReferralLink {
+  id           String            @id @default(uuid())
+  code         String            @unique
+  status       ReferralLinkStatus @default(ACTIVE)
+  landingPath  String?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  businesses   Business[]        @relation("BusinessReferralLink")
+
+  @@index([status, createdAt])
+  @@index([code, status])
 }
 
 model Trial {

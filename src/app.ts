@@ -17,6 +17,7 @@ import { passwordResetRouter } from "./modules/password-reset/password-reset.rou
 import { env } from "./config/env.js";
 import { notificationRouter } from "./modules/notification/notification.router.js";
 import { holidayRouter } from "./modules/holiday/holiday.router.js";
+import { referralLinkRouter } from "./modules/referral-link/referral-link.router.js";
 
 const corsOrigins = env.CORS_ORIGIN.split(",")
   .map((origin: string) => origin.trim())
@@ -65,5 +66,6 @@ app.use("/support", supportRouter);
 app.use("/password-reset", passwordResetRouter);
 app.use("/notification", notificationRouter);
 app.use("/holiday", holidayRouter);
+app.use("/referral-link", referralLinkRouter);
 
 app.use(errorMiddleware);

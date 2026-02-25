@@ -34,6 +34,13 @@ function hasBusinessAccess(req: Request, res: Response, businessId: string) {
   return true;
 }
 
+const normalizeReferralCode = (value: string) =>
+  value
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^A-Z0-9_-]/g, "");
+
 export const getAllBusinesses = async (req: Request, res: Response) => {
   const businesses = await prisma.business.findMany({
     select: {
@@ -118,9 +125,43 @@ export const getBusinessById = async (req: Request, res: Response) => {
 };
 
 export const createBusiness = async (req: Request, res: Response) => {
-  const { name, address, website } = req.body;
+  const { name, address, website, referralCode } = req.body as {
+    name?: string;
+    address?: string;
+    website?: string;
+    referralCode?: string;
+  };
+
+  if (!name || typeof name !== "string") {
+    return res.status(400).json({ message: "name is required" });
+  }
+
+  let referralLinkId: string | undefined;
+  const normalizedReferralCode =
+    typeof referralCode === "string" ? normalizeReferralCode(referralCode) : "";
+
+  if (normalizedReferralCode) {
+    try {
+      const referralLink = await prisma.referralLink.findFirst({
+        where: {
+          code: normalizedReferralCode,
+          status: "ACTIVE",
+        },
+        select: { id: true },
+      });
+      referralLinkId = referralLink?.id;
+    } catch (error) {
+      console.error("[business] referral link lookup failed", error);
+    }
+  }
+
   const business = await prisma.business.create({
-    data: { name, address, website },
+    data: {
+      name,
+      address,
+      website,
+      ...(referralLinkId ? { referralLinkId } : {}),
+    },
     select: {
       id: true,
       name: true,
