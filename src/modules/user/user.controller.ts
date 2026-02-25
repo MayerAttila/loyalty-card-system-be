@@ -76,8 +76,11 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
   const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
   const take =
     Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : undefined;
+  const offsetRaw = Number.parseInt(String(req.query.offset ?? ""), 10);
+  const skip = Number.isInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : undefined;
   const users = await prisma.user.findMany({
     where: { businessId },
+    ...(skip ? { skip } : {}),
     ...(take ? { take } : {}),
     orderBy: { createdAt: "desc" },
     select: {

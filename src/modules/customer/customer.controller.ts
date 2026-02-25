@@ -67,9 +67,12 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
   const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
   const take =
     Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : undefined;
+  const offsetRaw = Number.parseInt(String(req.query.offset ?? ""), 10);
+  const skip = Number.isInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : undefined;
 
   const customers = await prisma.customer.findMany({
     where: { businessId },
+    ...(skip ? { skip } : {}),
     select: {
       id: true,
       name: true,

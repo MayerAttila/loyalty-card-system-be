@@ -761,9 +761,12 @@ async function listNotificationLogsByBusiness(req: Request, res: Response) {
     hasLimitQuery && Number.isInteger(limitRaw) && limitRaw > 0
       ? Math.min(limitRaw, 1000)
       : undefined;
+  const offsetRaw = Number.parseInt(String(req.query.offset ?? ""), 10);
+  const skip = Number.isInteger(offsetRaw) && offsetRaw >= 0 ? offsetRaw : undefined;
 
   const logs = await prisma.notificationLog.findMany({
     where: { businessId },
+    ...(skip ? { skip } : {}),
     orderBy: [{ createdAt: "desc" }],
     ...(limit ? { take: limit } : {}),
     include: {
