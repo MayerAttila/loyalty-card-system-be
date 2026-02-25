@@ -26,6 +26,10 @@ export const getStampingLogsForBusiness = async (
     return res.status(403).json({ message: "insufficient permissions" });
   }
 
+  const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
+  const take =
+    Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : undefined;
+
   const logs = await prisma.stampingLog.findMany({
     where: {
       customerLoyaltyCardCycle: {
@@ -37,6 +41,7 @@ export const getStampingLogsForBusiness = async (
       },
     },
     orderBy: { stampedAt: "desc" },
+    ...(take ? { take } : {}),
     include: {
       stampedBy: {
         select: {

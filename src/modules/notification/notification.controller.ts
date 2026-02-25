@@ -755,14 +755,17 @@ async function listNotificationLogsByBusiness(req: Request, res: Response) {
     return res.status(403).json({ message: "invalid session" });
   }
 
-  const limitRaw = Number.parseInt(String(req.query.limit ?? "300"), 10);
+  const hasLimitQuery = req.query.limit !== undefined;
+  const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
   const limit =
-    Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 300;
+    hasLimitQuery && Number.isInteger(limitRaw) && limitRaw > 0
+      ? Math.min(limitRaw, 1000)
+      : undefined;
 
   const logs = await prisma.notificationLog.findMany({
     where: { businessId },
     orderBy: [{ createdAt: "desc" }],
-    take: limit,
+    ...(limit ? { take: limit } : {}),
     include: {
       notification: {
         select: {

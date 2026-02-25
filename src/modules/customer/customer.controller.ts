@@ -64,6 +64,9 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
   if (!sessionBusinessId || sessionBusinessId !== businessId) {
     return res.status(403).json({ message: "forbidden business access" });
   }
+  const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
+  const take =
+    Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : undefined;
 
   const customers = await prisma.customer.findMany({
     where: { businessId },
@@ -115,6 +118,7 @@ async function getCustomersByBusinessId(req: Request, res: Response) {
       },
     },
     orderBy: { createdAt: "desc" },
+    ...(take ? { take } : {}),
   });
 
   res.json(

@@ -73,8 +73,13 @@ export const getAllUsersByBusinessId = async (req: Request, res: Response) => {
   if (!sessionBusinessId || sessionBusinessId !== businessId) {
     return res.status(403).json({ message: "forbidden business access" });
   }
+  const limitRaw = Number.parseInt(String(req.query.limit ?? ""), 10);
+  const take =
+    Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : undefined;
   const users = await prisma.user.findMany({
     where: { businessId },
+    ...(take ? { take } : {}),
+    orderBy: { createdAt: "desc" },
     select: {
       id: true,
       name: true,
