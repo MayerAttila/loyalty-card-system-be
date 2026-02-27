@@ -109,6 +109,10 @@ function validateRuntimeEnv() {
     port,
     nodeEnv,
     corsOrigin,
+    platformAdminEmails: (process.env.PLATFORM_ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
   };
 }
 
@@ -118,4 +122,5 @@ export const env = {
   PORT: validated.port,
   NODE_ENV: validated.nodeEnv,
   CORS_ORIGIN: validated.corsOrigin,
+  PLATFORM_ADMIN_EMAILS: validated.platformAdminEmails,
 };

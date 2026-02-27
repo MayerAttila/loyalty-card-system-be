@@ -1,7 +1,6 @@
 import { Router } from "express";
 import {
-  requireBusinessMember,
-  requireRoles,
+  requirePlatformAdmin,
   requireSession,
 } from "../../common/middleware/authz.js";
 import { referralLinkController } from "./referral-link.controller.js";
@@ -11,31 +10,27 @@ export const referralLinkRouter = Router();
 referralLinkRouter.get(
   "/",
   requireSession,
-  requireBusinessMember,
-  requireRoles("OWNER", "ADMIN"),
+  requirePlatformAdmin,
   referralLinkController.listReferralLinks
 );
 
 referralLinkRouter.post(
   "/",
   requireSession,
-  requireBusinessMember,
-  requireRoles("OWNER", "ADMIN"),
+  requirePlatformAdmin,
   referralLinkController.createReferralLink
 );
 
 referralLinkRouter.patch(
   "/id/:id",
   requireSession,
-  requireBusinessMember,
-  requireRoles("OWNER", "ADMIN"),
+  requirePlatformAdmin,
   referralLinkController.updateReferralLink
 );
 
 referralLinkRouter.delete(
   "/id/:id",
   requireSession,
-  requireBusinessMember,
-  requireRoles("OWNER", "ADMIN"),
+  requirePlatformAdmin,
   referralLinkController.deleteReferralLink
 );

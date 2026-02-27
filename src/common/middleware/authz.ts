@@ -2,6 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response } from "express";
 import { getSession } from "@auth/express";
 import type { UserRole } from "@prisma/client";
 import { authConfig } from "../../auth.js";
+import { env } from "../../config/env.js";
 
 export type SessionUser = {
   id?: string;
@@ -76,6 +77,31 @@ export const requireRoles = (...roles: UserRole[]): RequestHandler => {
       next(error);
     }
   };
+};
+
+export const requirePlatformAdmin: RequestHandler = async (req, res, next) => {
+  try {
+    const user = await loadSessionUser(req);
+    if (!user) {
+      return res.status(401).json({ message: "unauthorized" });
+    }
+
+    const allowlist = env.PLATFORM_ADMIN_EMAILS;
+    if (!allowlist.length) {
+      return res
+        .status(403)
+        .json({ message: "platform admin allowlist not configured" });
+    }
+
+    const email = user.email?.trim().toLowerCase();
+    if (!email || !allowlist.includes(email)) {
+      return res.status(403).json({ message: "platform admin access required" });
+    }
+
+    next();
+  } catch (error) {
+    next(error);
+  }
 };
 
 export const requireParamBusinessMatch = (
