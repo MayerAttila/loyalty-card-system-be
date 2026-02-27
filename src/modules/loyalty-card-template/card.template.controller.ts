@@ -109,6 +109,17 @@ export const createCardTemplate = async (req: Request, res: Response) => {
     return res.status(403).json({ message: "forbidden business access" });
   }
 
+  const businessLogo = await prisma.image.findFirst({
+    where: { businessId, kind: "BUSINESS_LOGO" },
+    select: { id: true },
+  });
+  if (!businessLogo) {
+    return res.status(400).json({
+      message:
+        "business logo is required before saving card templates",
+    });
+  }
+
   if (maxPoints !== undefined && typeof maxPoints !== "number") {
     return res.status(400).json({ message: "maxPoints must be a number" });
   }
@@ -299,6 +310,18 @@ export const updateCardTemplate = async (req: Request, res: Response) => {
   if (!templateAccess || templateAccess.businessId !== sessionBusinessId) {
     return res.status(404).json({ message: "template not found" });
   }
+
+  const businessLogo = await prisma.image.findFirst({
+    where: { businessId: templateAccess.businessId, kind: "BUSINESS_LOGO" },
+    select: { id: true },
+  });
+  if (!businessLogo) {
+    return res.status(400).json({
+      message:
+        "business logo is required before saving card templates",
+    });
+  }
+
   const {
     template,
     text1,
