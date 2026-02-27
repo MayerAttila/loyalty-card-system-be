@@ -107,10 +107,33 @@ model Business {
   customers    Customer[]
   notifications Notification[]
   notificationLogs NotificationLog[]
+  subscriptionHistory SubscriptionHistory[]
   referralLinkId String?
   referralLink   ReferralLink? @relation("BusinessReferralLink", fields: [referralLinkId], references: [id], onDelete: SetNull)
 
   @@index([referralLinkId])
+}
+
+model SubscriptionHistory {
+  id                  String   @id @default(uuid())
+  businessId          String
+  business            Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  source              String
+  eventType           String?
+  stripeSubscriptionId String?
+  previousStatus      String?
+  nextStatus          String?
+  previousPriceId     String?
+  nextPriceId         String?
+  previousInterval    String?
+  nextInterval        String?
+  currentPeriodEnd    DateTime?
+  trialEndsAt         DateTime?
+  cancelAtPeriodEnd   Boolean?
+  createdAt           DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([stripeSubscriptionId, createdAt])
 }
 
 model ReferralLink {

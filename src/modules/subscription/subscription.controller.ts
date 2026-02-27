@@ -11,6 +11,41 @@ const ANNUAL_PRICE_ID = process.env.STRIPE_PRICE_ANNUAL;
 const TRIAL_DAYS = Number(process.env.STRIPE_TRIAL_DAYS ?? 30);
 
 type AllowedPriceId = string;
+type SubscriptionSyncSource = "API" | "WEBHOOK" | "SYSTEM";
+type SubscriptionSyncOptions = {
+  source: SubscriptionSyncSource;
+  eventType?: string | null;
+};
+
+type SubscriptionSnapshot = {
+  stripeSubscriptionId: string | null;
+  status: string | null;
+  stripePriceId: string | null;
+  interval: string | null;
+  currentPeriodEnd: Date | null;
+  trialEndsAt: Date | null;
+  cancelAtPeriodEnd: boolean | null;
+};
+
+type SubscriptionHistoryPayload = {
+  businessId: string;
+  source: string;
+  eventType?: string | null;
+  stripeSubscriptionId?: string | null;
+  previousStatus?: string | null;
+  nextStatus?: string | null;
+  previousPriceId?: string | null;
+  nextPriceId?: string | null;
+  previousInterval?: string | null;
+  nextInterval?: string | null;
+  currentPeriodEnd?: Date | null;
+  trialEndsAt?: Date | null;
+  cancelAtPeriodEnd?: boolean | null;
+};
+
+type SubscriptionHistoryDelegate = {
+  create: (args: { data: SubscriptionHistoryPayload }) => Promise<unknown>;
+};
 
 function normalizeRedirectUrl(url: string | undefined, baseUrl: string) {
   if (!url) return null;
@@ -113,8 +148,62 @@ async function sendSubscriptionEmailSafe(params: {
   }
 }
 
+const asTimestamp = (value: Date | null | undefined) => value?.getTime() ?? null;
+
+const getSubscriptionHistoryDelegate = (): SubscriptionHistoryDelegate | null => {
+  const delegate = (
+    prisma as unknown as {
+      subscriptionHistory?: {
+        create?: (args: { data: SubscriptionHistoryPayload }) => Promise<unknown>;
+      };
+    }
+  ).subscriptionHistory;
+
+  if (!delegate || typeof delegate.create !== "function") {
+    return null;
+  }
+
+  return {
+    create: delegate.create.bind(delegate),
+  };
+};
+
+const writeSubscriptionHistorySafe = async (data: SubscriptionHistoryPayload) => {
+  const delegate = getSubscriptionHistoryDelegate();
+  if (!delegate) {
+    console.warn(
+      "[subscription history] delegate unavailable; skipping history write"
+    );
+    return;
+  }
+
+  try {
+    await delegate.create({ data });
+  } catch (error) {
+    console.error("[subscription history] write failed", error);
+  }
+};
+
+const hasSubscriptionSnapshotChanged = (
+  previous: SubscriptionSnapshot | null,
+  next: SubscriptionSnapshot
+) => {
+  if (!previous) return true;
+
+  return (
+    previous.stripeSubscriptionId !== next.stripeSubscriptionId ||
+    previous.status !== next.status ||
+    previous.stripePriceId !== next.stripePriceId ||
+    previous.interval !== next.interval ||
+    asTimestamp(previous.currentPeriodEnd) !== asTimestamp(next.currentPeriodEnd) ||
+    asTimestamp(previous.trialEndsAt) !== asTimestamp(next.trialEndsAt) ||
+    previous.cancelAtPeriodEnd !== next.cancelAtPeriodEnd
+  );
+};
+
 async function updateBusinessFromSubscription(
-  subscription: Stripe.Subscription
+  subscription: Stripe.Subscription,
+  options: SubscriptionSyncOptions = { source: "SYSTEM" }
 ) {
   const businessId = subscription.metadata?.businessId;
   const customerId =
@@ -130,39 +219,110 @@ async function updateBusinessFromSubscription(
     ? new Date(subscription.trial_end * 1000)
     : null;
 
-  const data = {
-    stripeCustomerId: customerId ?? undefined,
+  const nextSnapshot: SubscriptionSnapshot = {
     stripeSubscriptionId: subscription.id,
-    stripePriceId: price?.id ?? undefined,
     status: subscription.status,
-    currentPeriodEnd: currentPeriodEnd ?? undefined,
-    trialEndsAt: trialEndsAt ?? undefined,
+    stripePriceId: price?.id ?? null,
+    interval: interval ?? null,
+    currentPeriodEnd,
+    trialEndsAt,
     cancelAtPeriodEnd: subscription.cancel_at_period_end ?? false,
-    interval: interval ?? undefined,
   };
 
-  if (businessId) {
-    await prisma.subscription.upsert({
-      where: { businessId },
-      create: { businessId, ...data },
-      update: data,
-    });
-    return;
-  }
+  const data = {
+    stripeCustomerId: customerId ?? null,
+    stripeSubscriptionId: nextSnapshot.stripeSubscriptionId,
+    stripePriceId: nextSnapshot.stripePriceId,
+    status: nextSnapshot.status,
+    currentPeriodEnd: nextSnapshot.currentPeriodEnd,
+    trialEndsAt: nextSnapshot.trialEndsAt,
+    cancelAtPeriodEnd: nextSnapshot.cancelAtPeriodEnd,
+    interval: nextSnapshot.interval,
+  };
 
-  if (customerId) {
+  let targetBusinessId: string | null = businessId || null;
+  if (!targetBusinessId && customerId) {
     const existing = await prisma.subscription.findFirst({
       where: { stripeCustomerId: customerId },
       select: { businessId: true },
     });
-    if (existing?.businessId) {
-      await prisma.subscription.upsert({
-        where: { businessId: existing.businessId },
-        create: { businessId: existing.businessId, ...data },
-        update: data,
-      });
-    }
+    targetBusinessId = existing?.businessId ?? null;
   }
+
+  if (!targetBusinessId) {
+    return;
+  }
+
+  const previous = await prisma.subscription.findUnique({
+    where: { businessId: targetBusinessId },
+    select: {
+      stripeSubscriptionId: true,
+      status: true,
+      stripePriceId: true,
+      interval: true,
+      currentPeriodEnd: true,
+      trialEndsAt: true,
+      cancelAtPeriodEnd: true,
+    },
+  });
+
+  await prisma.subscription.upsert({
+    where: { businessId: targetBusinessId },
+    create: { businessId: targetBusinessId, ...data },
+    update: data,
+  });
+
+  if (!hasSubscriptionSnapshotChanged(previous, nextSnapshot)) {
+    return;
+  }
+
+  await writeSubscriptionHistorySafe({
+    businessId: targetBusinessId,
+    source: options.source,
+    eventType: options.eventType ?? null,
+    stripeSubscriptionId: nextSnapshot.stripeSubscriptionId,
+    previousStatus: previous?.status ?? null,
+    nextStatus: nextSnapshot.status,
+    previousPriceId: previous?.stripePriceId ?? null,
+    nextPriceId: nextSnapshot.stripePriceId,
+    previousInterval: previous?.interval ?? null,
+    nextInterval: nextSnapshot.interval,
+    currentPeriodEnd: nextSnapshot.currentPeriodEnd,
+    trialEndsAt: nextSnapshot.trialEndsAt,
+    cancelAtPeriodEnd: nextSnapshot.cancelAtPeriodEnd,
+  });
+}
+
+async function createSubscriptionHistoryEntry(input: {
+  businessId: string;
+  source: SubscriptionSyncSource;
+  eventType?: string | null;
+  stripeSubscriptionId?: string | null;
+  previousStatus?: string | null;
+  nextStatus?: string | null;
+  previousPriceId?: string | null;
+  nextPriceId?: string | null;
+  previousInterval?: string | null;
+  nextInterval?: string | null;
+  currentPeriodEnd?: Date | null;
+  trialEndsAt?: Date | null;
+  cancelAtPeriodEnd?: boolean | null;
+}) {
+  await writeSubscriptionHistorySafe({
+    businessId: input.businessId,
+    source: input.source,
+    eventType: input.eventType ?? null,
+    stripeSubscriptionId: input.stripeSubscriptionId ?? null,
+    previousStatus: input.previousStatus ?? null,
+    nextStatus: input.nextStatus ?? null,
+    previousPriceId: input.previousPriceId ?? null,
+    nextPriceId: input.nextPriceId ?? null,
+    previousInterval: input.previousInterval ?? null,
+    nextInterval: input.nextInterval ?? null,
+    currentPeriodEnd: input.currentPeriodEnd ?? null,
+    trialEndsAt: input.trialEndsAt ?? null,
+    cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? null,
+  });
 }
 
 export const getSubscriptionStatus = async (req: Request, res: Response) => {
@@ -254,6 +414,16 @@ export const startTrialNoCard = async (req: Request, res: Response) => {
     },
   });
 
+  await createSubscriptionHistoryEntry({
+    businessId: business.id,
+    source: "API",
+    eventType: "trial.started",
+    previousStatus: business.subscription?.status ?? null,
+    nextStatus: "trial",
+    trialEndsAt: endsAt,
+    cancelAtPeriodEnd: false,
+  });
+
   void sendSubscriptionEmailSafe({
     businessId: business.id,
     fallbackEmail: user.email,
@@ -288,12 +458,55 @@ export const createSubscriptionIntent = async (req: Request, res: Response) => {
       id: true,
       name: true,
       subscription: {
-        select: { stripeCustomerId: true },
+        select: {
+          stripeCustomerId: true,
+          stripeSubscriptionId: true,
+          stripePriceId: true,
+          status: true,
+        },
       },
     },
   });
   if (!business) {
     return res.status(404).json({ message: "business not found" });
+  }
+
+  const existingSubscriptionId = business.subscription?.stripeSubscriptionId ?? null;
+  const existingStatus = (business.subscription?.status ?? "").toLowerCase();
+  const existingPriceId = business.subscription?.stripePriceId ?? null;
+
+  if (
+    existingSubscriptionId &&
+    existingStatus === "incomplete" &&
+    existingPriceId === priceId
+  ) {
+    try {
+      const existingSubscription = await stripe.subscriptions.retrieve(
+        existingSubscriptionId,
+        { expand: ["latest_invoice.payment_intent"] }
+      );
+
+      const existingPaymentIntent = existingSubscription.latest_invoice
+        ? (existingSubscription.latest_invoice as Stripe.Invoice).payment_intent
+        : null;
+
+      const existingClientSecret =
+        existingPaymentIntent && typeof existingPaymentIntent !== "string"
+          ? existingPaymentIntent.client_secret
+          : null;
+
+      if (existingClientSecret) {
+        return res.json({
+          clientSecret: existingClientSecret,
+          subscriptionId: existingSubscription.id,
+        });
+      }
+    } catch (error) {
+      const maybeStripeError = error as { code?: string };
+      if (maybeStripeError?.code !== "resource_missing") {
+        console.error("[subscription] failed to reuse incomplete subscription", error);
+      }
+    }
   }
 
   let stripeCustomerId = business.subscription?.stripeCustomerId ?? null;
@@ -329,7 +542,10 @@ export const createSubscriptionIntent = async (req: Request, res: Response) => {
     metadata: { businessId: business.id },
   });
 
-  await updateBusinessFromSubscription(subscription);
+  await updateBusinessFromSubscription(subscription, {
+    source: "API",
+    eventType: "subscription.intent.created",
+  });
 
   const paymentIntent = subscription.latest_invoice
     ? (subscription.latest_invoice as Stripe.Invoice).payment_intent
@@ -378,7 +594,10 @@ export const cancelSubscription = async (req: Request, res: Response) => {
     }
   );
 
-  await updateBusinessFromSubscription(updated);
+  await updateBusinessFromSubscription(updated, {
+    source: "API",
+    eventType: "subscription.cancel_at_period_end",
+  });
 
   void sendSubscriptionEmailSafe({
     businessId: user.businessId as string,
@@ -412,7 +631,10 @@ export const cancelSubscriptionNow = async (req: Request, res: Response) => {
     subscription.stripeSubscriptionId
   );
 
-  await updateBusinessFromSubscription(canceled);
+  await updateBusinessFromSubscription(canceled, {
+    source: "API",
+    eventType: "subscription.canceled_now",
+  });
 
   void sendSubscriptionEmailSafe({
     businessId: user.businessId as string,
@@ -435,6 +657,12 @@ export const resetSubscriptionForTesting = async (req: Request, res: Response) =
     select: {
       stripeSubscriptionId: true,
       stripeCustomerId: true,
+      stripePriceId: true,
+      status: true,
+      interval: true,
+      currentPeriodEnd: true,
+      trialEndsAt: true,
+      cancelAtPeriodEnd: true,
     },
   });
 
@@ -462,6 +690,22 @@ export const resetSubscriptionForTesting = async (req: Request, res: Response) =
   }
 
   if (subscription) {
+    await createSubscriptionHistoryEntry({
+      businessId: user.businessId as string,
+      source: "API",
+      eventType: "subscription.reset",
+      stripeSubscriptionId: subscription.stripeSubscriptionId ?? null,
+      previousStatus: subscription.status ?? null,
+      nextStatus: "none",
+      previousPriceId: subscription.stripePriceId ?? null,
+      nextPriceId: null,
+      previousInterval: subscription.interval ?? null,
+      nextInterval: null,
+      currentPeriodEnd: null,
+      trialEndsAt: null,
+      cancelAtPeriodEnd: false,
+    });
+
     await prisma.subscription.delete({
       where: { businessId: user.businessId },
     });
@@ -661,7 +905,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
           const subscription = await stripe.subscriptions.retrieve(
             subscriptionId
           );
-          await updateBusinessFromSubscription(subscription);
+          await updateBusinessFromSubscription(subscription, {
+            source: "WEBHOOK",
+            eventType: event.type,
+          });
           if (subscription.metadata?.businessId) {
             void sendSubscriptionEmailSafe({
               businessId: subscription.metadata.businessId,
@@ -681,7 +928,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        await updateBusinessFromSubscription(subscription);
+        await updateBusinessFromSubscription(subscription, {
+          source: "WEBHOOK",
+          eventType: event.type,
+        });
         break;
       }
       case "invoice.paid":
@@ -691,7 +941,10 @@ export const handleWebhook = async (req: Request, res: Response) => {
           const subscription = await stripe.subscriptions.retrieve(
             invoice.subscription
           );
-          await updateBusinessFromSubscription(subscription);
+          await updateBusinessFromSubscription(subscription, {
+            source: "WEBHOOK",
+            eventType: event.type,
+          });
         }
         break;
       }
